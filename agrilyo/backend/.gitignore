@@ -1,0 +1,6 @@
+
+# Fichiers et dossiers à ignorer par Git
+# Fichiers de configuration
+*.env   
+*.env.*.local
+*.env.local
