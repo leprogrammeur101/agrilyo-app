@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, ActivityIndicator, Alert,
@@ -9,6 +9,8 @@ import { Ionicons } from "@expo/vector-icons";
 import BadgeFoncier from "../../components/ui/Badge";
 import { useFoncierStore } from "../../store/foncier.store";
 import { STATUT_JURIDIQUE_LABELS, TYPE_ACCES_LABELS } from "../../api/foncier.api";
+import { contratApi } from "../../api/contrat.api";
+import { getApiErrorMessage } from "../../api/client";
 import { Colors } from "../../constants/colors";
 import { FontFamily, FontSize, Spacing, BorderRadius, Shadow } from "../../constants/theme";
 
@@ -36,6 +38,7 @@ function InfoRow({ icon, label, value }: { icon: string; label: string; value: s
 
 export default function FicheAnnonceScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const [contactLoading, setContactLoading] = useState(false);
   const { annonceSelectionnee, isLoadingDetail, chargerDetail, clearDetail } =
     useFoncierStore();
 
@@ -63,6 +66,25 @@ export default function FicheAnnonceScreen() {
     "Bailleur";
   const avatarLetter = nomBailleur.charAt(0) || "B";
 
+  const ouvrirConversation = async () => {
+    if (!id) return;
+    setContactLoading(true);
+    try {
+      const thread = await contratApi.ouvrirThread(
+        id,
+        `Bonjour, je suis intéressé par votre annonce de ${a.superficie_ha} ha à ${a.region}.`
+      );
+      router.push({
+        pathname: "/foncier/thread/[id]",
+        params: { id: thread.id, titre: nomBailleur },
+      } as never);
+    } catch (err) {
+      Alert.alert("Erreur", getApiErrorMessage(err));
+    } finally {
+      setContactLoading(false);
+    }
+  };
+
   const handleContacter = () => {
     Alert.alert(
       "Contacter le bailleur",
@@ -71,8 +93,7 @@ export default function FicheAnnonceScreen() {
         { text: "Annuler", style: "cancel" },
         {
           text: "Envoyer un message",
-          onPress: () =>
-            Alert.alert("Bientôt disponible", "La messagerie arrive au Sprint 3."),
+          onPress: ouvrirConversation,
         },
       ]
     );
@@ -191,12 +212,19 @@ export default function FicheAnnonceScreen() {
       {/* Bouton contacter */}
       <View style={styles.footer}>
         <TouchableOpacity
-          style={styles.contactBtn}
+          style={[styles.contactBtn, contactLoading && styles.contactBtnDisabled]}
           onPress={handleContacter}
+          disabled={contactLoading}
           activeOpacity={0.9}
         >
-          <Ionicons name="chatbubble-outline" size={20} color={Colors.blanc} />
-          <Text style={styles.contactBtnText}>Contacter le bailleur</Text>
+          {contactLoading ? (
+            <ActivityIndicator color={Colors.blanc} />
+          ) : (
+            <>
+              <Ionicons name="chatbubble-outline" size={20} color={Colors.blanc} />
+              <Text style={styles.contactBtnText}>Contacter le bailleur</Text>
+            </>
+          )}
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -276,5 +304,6 @@ const styles = StyleSheet.create({
     paddingVertical: 16, flexDirection: "row", alignItems: "center",
     justifyContent: "center", gap: Spacing.sm,
   },
+  contactBtnDisabled: { opacity: 0.7 },
   contactBtnText: { fontFamily: FontFamily.headingSemiBold, fontSize: FontSize.md, color: Colors.blanc },
 });

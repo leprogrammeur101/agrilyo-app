@@ -159,10 +159,12 @@ async def get_thread(
 
     # Marquer les messages comme lus
     annonce = thread.annonce
-    if user.id in (thread.demandeur_id, annonce.bailleur_id):
-        for msg in thread.messages:
-            if msg.auteur_id != user.id and not msg.lu:
-                msg.lu = True
+    if user.id not in (thread.demandeur_id, annonce.bailleur_id):
+        raise ContratError("Vous ne participez pas à ce thread", 403)
+
+    for msg in thread.messages:
+        if msg.auteur_id != user.id and not msg.lu:
+            msg.lu = True
 
     return thread
 
@@ -371,6 +373,9 @@ async def declarer_litige(
 
     if declarant.id not in (contrat.bailleur_id, contrat.locataire_id):
         raise ContratError("Vous n'êtes pas partie à ce contrat", 403)
+
+    if contrat.statut != StatutContrat.SIGNE:
+        raise ContratError("Un litige ne peut être ouvert que sur un contrat signé", 400)
 
     existing = await db.execute(
         select(LitigeFoncier).where(LitigeFoncier.contrat_id == data.contrat_id)

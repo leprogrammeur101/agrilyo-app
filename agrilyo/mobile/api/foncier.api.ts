@@ -158,7 +158,7 @@ export const foncierApi = {
 
   mesAnnonces: async (page = 1): Promise<AnnonceListResponse> => {
     const { data } = await apiClient.get<AnnonceListResponse>(
-      "/foncier/annonces/moi/annonces",
+      "/foncier/annonces/mes-annonces",
       { params: { page } }
     );
     return data;

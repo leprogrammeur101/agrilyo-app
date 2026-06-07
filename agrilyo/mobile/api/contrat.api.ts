@@ -19,6 +19,7 @@ export interface MessageItem {
 export interface ThreadDetail {
   id: string;
   annonce_id: string;
+  demandeur_id: string;
   est_actif: boolean;
   messages: MessageItem[];
 }
@@ -58,6 +59,18 @@ export interface SignatureResult {
   horodatage: string | null;
   est_completement_signe: boolean;
   message: string;
+}
+
+export interface LitigeDetail {
+  id: string;
+  contrat_id: string;
+  declarant_id: string;
+  admin_id: string | null;
+  description: string;
+  statut: string;
+  resolution: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export const TYPE_CONTRAT_LABELS: Record<string, string> = {
@@ -156,8 +169,8 @@ export const contratApi = {
   declarerLitige: async (
     contratId: string,
     description: string
-  ): Promise<{ id: string }> => {
-    const { data } = await apiClient.post("/foncier/litiges", {
+  ): Promise<LitigeDetail> => {
+    const { data } = await apiClient.post<LitigeDetail>("/foncier/litiges", {
       contrat_id: contratId,
       description,
     });

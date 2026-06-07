@@ -74,6 +74,8 @@ export default function RootLayout() {
           {/* Sprint 3 — Messagerie & Contrats */}
           <Stack.Screen name="foncier/thread/[id]"  options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="foncier/contrat/[id]" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="foncier/contrat/creer" options={{ animation: "slide_from_bottom" }} />
+          <Stack.Screen name="foncier/conversations" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style="light" backgroundColor="#1A4D2E" />

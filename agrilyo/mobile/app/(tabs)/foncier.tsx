@@ -99,13 +99,21 @@ export default function FoncierScreen() {
           <Text style={styles.headerTitle}>Foncier</Text>
           <Text style={styles.headerSub}>Terres disponibles</Text>
         </View>
-        <TouchableOpacity
-          style={styles.mesAnnoncesBtn}
-          onPress={() => router.push("/foncier/mes-annonces" as never)}
-        >
-          <Ionicons name="list" size={18} color={Colors.vertForet} />
-          <Text style={styles.mesAnnoncesBtnText}>Mes annonces</Text>
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerActionBtn}
+            onPress={() => router.push("/foncier/conversations" as never)}
+          >
+            <Ionicons name="chatbubbles-outline" size={18} color={Colors.vertForet} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.mesAnnoncesBtn}
+            onPress={() => router.push("/foncier/mes-annonces" as never)}
+          >
+            <Ionicons name="list" size={18} color={Colors.vertForet} />
+            <Text style={styles.mesAnnoncesBtnText}>Mes annonces</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -166,6 +174,11 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontFamily: FontFamily.headingBold, fontSize: FontSize.xxl, color: Colors.blanc },
   headerSub: { fontFamily: FontFamily.bodyRegular, fontSize: FontSize.sm, color: Colors.orClair },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: Spacing.sm },
+  headerActionBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: Colors.blanc, alignItems: "center", justifyContent: "center",
+  },
   mesAnnoncesBtn: {
     flexDirection: "row", alignItems: "center", gap: 6,
     backgroundColor: Colors.blanc, paddingHorizontal: Spacing.md,
