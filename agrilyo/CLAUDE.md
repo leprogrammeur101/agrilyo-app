@@ -1,39 +1,62 @@
 # AGRILYO — Contexte développement (CLAUDE.md)
 
 > Fichier de référence pour les sessions Claude Code.
-> Mis à jour : Avril 2026 | Stack : React Native + FastAPI + PostgreSQL
+> Mis à jour : juin 2026 | Stack : React Native + FastAPI + PostgreSQL
 
 ---
 
 ## Projet
 
-**AGRILYO** — Plateforme agricole de Côte d'Ivoire (anciennement AGRO-CI).
-Trois piliers MVP Phase 1 : **M1 Foncier · M2 Semences · M3 Conseil**.
-Dev solo. Déploiement Railway.
+**AGRILYO** (anciennement AGRO-CI) est la **plateforme agricole intégrée** de Côte d’Ivoire.
+
+Elle permet aux agriculteurs, bailleurs de terres, semenciers et agronomes de se connecter dans un seul écosystème numérique de confiance.
+
+**Vision** : Devenir l’infrastructure de référence qui résout trois problèmes majeurs de l’agriculture ivoirienne :
+- Accès sécurisé à la terre (Foncier)
+- Accès à des semences/plants de qualité
+- Accompagnement agronomique professionnel
+
+**Phase 1 (MVP)** : 3 piliers principaux  
+**M1 Foncier · M2 Semences · M3 Conseil**
+
+**Stratégie actuelle** : Développement **mobile-first** (React Native + Expo) avant la version web.  
+Développement solo. Déploiement backend sur Railway.
 
 ---
 
-## Structure du repo
+## Features Clés (MVP Phase 1)
 
-```
-agrilyo/
-├── backend/          # FastAPI + PostgreSQL
-│   ├── app/
-│   │   ├── core/     # config.py, database.py, security.py
-│   │   ├── models/   # SQLAlchemy ORM (User, OTPCode, ...)
-│   │   ├── schemas/  # Pydantic v2 (validation I/O)
-│   │   ├── api/v1/   # Endpoints FastAPI par module
-│   │   └── services/ # Logique métier, SMS, paiement, stockage
-│   ├── alembic/      # Migrations DB
-│   └── tests/        # pytest-asyncio
-└── mobile/           # React Native + Expo SDK 51
-    ├── app/
-    │   ├── (auth)/   # login.tsx, verify-otp.tsx
-    │   └── (tabs)/   # index.tsx, foncier.tsx, semences.tsx, conseil.tsx
-    ├── api/          # client.ts (Axios+JWT), auth.api.ts, ...
-    ├── store/        # Zustand stores
-    └── constants/    # colors.ts, theme.ts
-```
+### 🌍 **M1 – Module Foncier**
+- Dépôt et recherche d’annonces de terres (location, vente, métayage, abougnon)
+- Système de **badges de sécurité** (Non vérifié / Droits coutumiers / Certificat Foncier / Titre Foncier)
+- Upload photos + localisation GPS
+- Modèles de contrats conformes (PDF exportables)
+- Dépôt + horodatage numérique des contrats
+- Messagerie sécurisée bailleur ↔ locataire
+- Cartographie basique des annonces
+
+### 🌍 **M2 – Module Semences & Plants**
+- Catalogue national de semences et plants (variétés, certifications, stocks)
+- Profils fournisseurs vérifiés + **Label Ivoire Semences**
+- Commandes en ligne + panier multi-fournisseurs
+- Paiement mobile (CinetPay : Orange Money, MTN MoMo, Wave)
+- Canal **USSD** pour les zones sans internet
+- Système d’avis et notation
+
+### 🌍 **M3 – Module Conseil Agronomique**
+- Profils d’agronomes certifiés
+- Matching intelligent selon culture, zone et besoin
+- Téléconseils audio/vidéo
+- Planning cultural personnalisé + rappels (notifications/SMS)
+- Bibliothèque de fiches techniques (offline)
+- Messagerie avec envoi de photos pour diagnostic
+
+**Fonctionnalités transversales** :
+- Authentification OTP SMS
+- Mode offline-first (fiches, plannings)
+- Notifications push + SMS
+- Paiements sécurisés
+- Back-office admin
 
 ---
 
@@ -90,22 +113,21 @@ cremeIvoire:#F6F3ED  ← fond principal
 
 ---
 
-## Sprints
+## Sprints (Mise à jour Juin 2026)
 
 | Sprint | Contenu | Statut |
 |---|---|---|
 | Sprint 0 | Scaffold backend + mobile, DB, déploiement Railway | ✅ Complet |
-| Sprint 1 | Auth complète : SendOTP, VerifyOTP, Login, Refresh, Logout | 🔜 Prochain |
-| Sprint 2 | M1 Foncier — Annonces (CRUD, badges, photos) | — |
-| Sprint 3 | M1 Foncier — Contrats, horodatage, litiges | — |
+| Sprint 1 | Auth complète : SendOTP, VerifyOTP, Login, Refresh, Logout | ✅ Terminé |
+| Sprint 2 | M1 Foncier — Annonces (CRUD, badges, photos) | ✅ Terminé |
+| **Sprint 3** | **M1 Foncier — Contrats, horodatage, litiges** | **En cours** |
 | Sprint 4 | M2 Semences — Catalogue fournisseurs, produits | — |
 | Sprint 5 | M2 Semences — Commandes, CinetPay, USSD | — |
 | Sprint 6 | M3 Conseil — Agronomes, matching | — |
-| Sprint 7 | M3 Conseil — Sessions, planning, rappels Celery | — |
-| Sprint 8 | Back-office Admin (Django Admin ou FastAPI Admin) | — |
-| Sprint 9 | QA, tests de charge, audit OWASP | — |
-| Sprint 10 | Bêta privée + corrections | — |
-
+| Sprint 7 | M3 Conseil — Sessions, planning, rappels | — |
+| Sprint 8 | Back-office Admin | — |
+| Sprint 9 | QA, tests, audit | — |
+| Sprint 10 | Bêta privée | — |
 ---
 
 ## Commandes fréquentes
