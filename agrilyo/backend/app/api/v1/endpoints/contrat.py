@@ -109,6 +109,7 @@ async def get_thread_endpoint(
             "id": str(thread.id),
             "annonce_id": str(thread.annonce_id),
             "demandeur_id": str(thread.demandeur_id),
+            "bailleur_id": str(thread.annonce.bailleur_id),
             "est_actif": thread.est_actif,
             "messages": messages,
         }

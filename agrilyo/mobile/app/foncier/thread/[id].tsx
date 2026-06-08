@@ -1,24 +1,29 @@
 /**
  * Écran Thread — /foncier/thread/[id]
- * Messagerie en temps réel entre agriculteur et bailleur.
+ * Messagerie entre agriculteur et bailleur.
+ * Le bailleur voit un bouton "Créer un contrat" pour formaliser l'accord.
  */
 
 import { useEffect, useRef, useState } from "react";
 import {
   View, Text, FlatList, TextInput, TouchableOpacity,
   StyleSheet, ActivityIndicator, KeyboardAvoidingView,
-  Platform,
+  Platform, Alert,
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { contratApi, MessageItem } from "../../../api/contrat.api";
+import { contratApi, MessageItem, ThreadDetail } from "../../../api/contrat.api";
 import { getApiErrorMessage } from "../../../api/client";
+import { useAuthStore } from "../../../store/auth.store";
 import { Colors } from "../../../constants/colors";
 import { FontFamily, FontSize, Spacing, BorderRadius } from "../../../constants/theme";
 
 export default function ThreadScreen() {
   const { id, titre } = useLocalSearchParams<{ id: string; titre?: string }>();
+  const { user } = useAuthStore();
+
+  const [thread, setThread] = useState<ThreadDetail | null>(null);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [texte, setTexte] = useState("");
   const [loading, setLoading] = useState(true);
@@ -32,8 +37,9 @@ export default function ThreadScreen() {
   const chargerMessages = async () => {
     if (!id) return;
     try {
-      const thread = await contratApi.getThread(id);
-      setMessages(thread.messages);
+      const threadDetail = await contratApi.getThread(id);
+      setThread(threadDetail);
+      setMessages(threadDetail.messages);
     } catch (err) {
       console.error(getApiErrorMessage(err));
     } finally {
@@ -49,7 +55,6 @@ export default function ThreadScreen() {
     try {
       await contratApi.envoyerMessage(id, contenu);
       await chargerMessages();
-      // Scroll vers le bas
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     } catch (err) {
       console.error(getApiErrorMessage(err));
@@ -57,6 +62,35 @@ export default function ThreadScreen() {
       setSending(false);
     }
   };
+
+  // ── Bailleur : créer un contrat avec le demandeur ─────────────────────────
+
+  const estBailleur = user?.id === thread?.bailleur_id;
+
+  const handleCreerContrat = () => {
+    if (!thread) return;
+    Alert.alert(
+      "Créer un contrat",
+      "Vous allez formaliser un contrat avec ce locataire. Continuer ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        {
+          text: "Continuer",
+          onPress: () =>
+            router.push({
+              pathname: "/foncier/contrat/creer",
+              params: {
+                annonce_id: thread.annonce_id,
+                locataire_id: thread.demandeur_id,
+                locataire_nom: titre || "Locataire",
+              },
+            } as never),
+        },
+      ]
+    );
+  };
+
+  // ── Rendu message ─────────────────────────────────────────────────────────
 
   const renderMessage = ({ item }: { item: MessageItem }) => (
     <View style={[styles.messageRow, item.est_moi && styles.messageRowMoi]}>
@@ -83,6 +117,8 @@ export default function ThreadScreen() {
     </View>
   );
 
+  // ── Rendu principal ───────────────────────────────────────────────────────
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       {/* Header */}
@@ -96,6 +132,17 @@ export default function ThreadScreen() {
           </Text>
           <Text style={styles.headerSub}>M1 Foncier — Messagerie</Text>
         </View>
+        {/* Bouton contrat — visible uniquement pour le bailleur */}
+        {estBailleur && (
+          <TouchableOpacity
+            style={styles.contratBtn}
+            onPress={handleCreerContrat}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="document-text-outline" size={16} color={Colors.orProfond} />
+            <Text style={styles.contratBtnText}>Contrat</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <KeyboardAvoidingView
@@ -128,6 +175,19 @@ export default function ThreadScreen() {
           />
         )}
 
+        {/* Bannière bailleur */}
+        {estBailleur && messages.length > 0 && (
+          <View style={styles.banniereBailleur}>
+            <Ionicons name="information-circle-outline" size={14} color={Colors.orProfond} />
+            <Text style={styles.banniereBailleurText}>
+              Accord trouvé ? Formalisez-le avec un contrat sécurisé.
+            </Text>
+            <TouchableOpacity onPress={handleCreerContrat}>
+              <Text style={styles.banniereBailleurLien}>Créer →</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* Saisie */}
         <View style={styles.saisieBar}>
           <TextInput
@@ -156,8 +216,11 @@ export default function ThreadScreen() {
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.vertForet },
+
   header: {
     backgroundColor: Colors.vertForet,
     flexDirection: "row", alignItems: "center",
@@ -171,11 +234,27 @@ const styles = StyleSheet.create({
   headerSub: {
     fontFamily: FontFamily.bodyRegular, fontSize: FontSize.xs, color: Colors.orClair,
   },
-  loading: { flex: 1, justifyContent: "center", alignItems: "center" },
+  contratBtn: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(200,151,42,0.15)",
+    paddingHorizontal: Spacing.sm, paddingVertical: 6,
+    borderRadius: BorderRadius.pill,
+    borderWidth: 1, borderColor: Colors.orProfond,
+  },
+  contratBtnText: {
+    fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.orProfond,
+  },
+
+  loading: {
+    flex: 1, justifyContent: "center", alignItems: "center",
+    backgroundColor: Colors.cremeIvoire,
+  },
+
   listeMessages: {
     padding: Spacing.md, paddingBottom: Spacing.lg,
     backgroundColor: Colors.cremeIvoire, flexGrow: 1,
   },
+
   messageRow: {
     flexDirection: "row", alignItems: "flex-end",
     marginBottom: Spacing.sm, gap: Spacing.sm,
@@ -214,11 +293,27 @@ const styles = StyleSheet.create({
     color: Colors.textDesactive, marginTop: 4, textAlign: "right",
   },
   heureMoi: { color: "rgba(255,255,255,0.6)" },
+
   vide: { flex: 1, alignItems: "center", paddingTop: 60 },
   videTexte: {
     fontFamily: FontFamily.bodyRegular, fontSize: FontSize.md,
     color: Colors.textDesactive, textAlign: "center",
   },
+
+  banniereBailleur: {
+    flexDirection: "row", alignItems: "center", gap: Spacing.sm,
+    backgroundColor: "rgba(200,151,42,0.08)",
+    paddingHorizontal: Spacing.md, paddingVertical: 8,
+    borderTopWidth: 1, borderTopColor: "rgba(200,151,42,0.2)",
+  },
+  banniereBailleurText: {
+    flex: 1, fontFamily: FontFamily.bodyRegular,
+    fontSize: FontSize.xs, color: Colors.orProfond,
+  },
+  banniereBailleurLien: {
+    fontFamily: FontFamily.bodyBold, fontSize: FontSize.xs, color: Colors.orProfond,
+  },
+
   saisieBar: {
     flexDirection: "row", alignItems: "flex-end",
     padding: Spacing.md, gap: Spacing.sm,

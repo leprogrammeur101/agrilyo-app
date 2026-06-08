@@ -20,6 +20,7 @@ export interface ThreadDetail {
   id: string;
   annonce_id: string;
   demandeur_id: string;
+  bailleur_id: string;
   est_actif: boolean;
   messages: MessageItem[];
 }

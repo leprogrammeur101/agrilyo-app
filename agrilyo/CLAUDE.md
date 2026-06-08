@@ -120,8 +120,8 @@ cremeIvoire:#F6F3ED  ← fond principal
 | Sprint 0 | Scaffold backend + mobile, DB, déploiement Railway | ✅ Complet |
 | Sprint 1 | Auth complète : SendOTP, VerifyOTP, Login, Refresh, Logout | ✅ Terminé |
 | Sprint 2 | M1 Foncier — Annonces (CRUD, badges, photos) | ✅ Terminé |
-| **Sprint 3** | **M1 Foncier — Contrats, horodatage, litiges** | **En cours** |
-| Sprint 4 | M2 Semences — Catalogue fournisseurs, produits | — |
+| Sprint 3 | M1 Foncier — Contrats OTP+SHA256, messagerie, litiges, `mes-annonces`, `contrat/creer` | ✅ Terminé |
+| **Sprint 4** | **M2 Semences — Catalogue fournisseurs, produits, label Ivoire Semences** | **À démarrer** |
 | Sprint 5 | M2 Semences — Commandes, CinetPay, USSD | — |
 | Sprint 6 | M3 Conseil — Agronomes, matching | — |
 | Sprint 7 | M3 Conseil — Sessions, planning, rappels | — |
