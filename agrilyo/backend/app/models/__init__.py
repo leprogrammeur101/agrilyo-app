@@ -10,5 +10,8 @@ from app.models.foncier import (  # noqa: F401
     ThreadFoncier, MessageFoncier,
     ContratFoncier, LitigeFoncier,
 )
-# from app.models.semences import Fournisseur, Produit, Commande, LigneCommande, Avis  # noqa
+from app.models.semences import (  # noqa: F401
+    FournisseurSemences, ProduitSemences, PhotoProduit,
+    CertificationProduit, AvisProduit,
+)
 # from app.models.conseil import Agronome, DemandeConseil, SessionConseil, Planning  # noqa

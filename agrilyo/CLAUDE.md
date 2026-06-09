@@ -121,7 +121,18 @@ cremeIvoire:#F6F3ED  ← fond principal
 | Sprint 1 | Auth complète : SendOTP, VerifyOTP, Login, Refresh, Logout | ✅ Terminé |
 | Sprint 2 | M1 Foncier — Annonces (CRUD, badges, photos) | ✅ Terminé |
 | Sprint 3 | M1 Foncier — Contrats OTP+SHA256, messagerie, litiges, `mes-annonces`, `contrat/creer` | ✅ Terminé |
-| **Sprint 4** | **M2 Semences — Catalogue fournisseurs, produits, label Ivoire Semences** | **À démarrer** |
+| **Sprint 4** | **M2 Semences — Catalogue fournisseurs, produits, label Ivoire Semences** | **En cours — S4-6 mobile API/store implémenté, validation attendue** |
+
+            **S4-1** — Modèles SQLAlchemy (backend/app/models/semences.py)
+            - **S4-2** — Schémas Pydantic (backend/app/schemas/semences.py)
+            - **S4-3** — Migration Alembic → **Terminé**
+            - **S4-4** — Service métier (backend/app/services/semences_service.py)
+            - **S4-5** — Endpoints FastAPI (backend/app/api/v1/endpoints/semences.py)
+            - **S4-6** — API Layer + Store Zustand (mobile)
+            - **S4-7** — Composants UI réutilisables
+            - **S4-8** — Screens Expo Router
+        nous somme au S4-6
+        
 | Sprint 5 | M2 Semences — Commandes, CinetPay, USSD | — |
 | Sprint 6 | M3 Conseil — Agronomes, matching | — |
 | Sprint 7 | M3 Conseil — Sessions, planning, rappels | — |
