@@ -694,6 +694,12 @@ class PaiementSemences(Base):
     stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     checkout_url: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # Dans PaiementSemences, ajouter expires_at pour alimenter StripeCheckoutResponse
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Expiration de la Checkout Session Stripe (~30 min après création)"
+    )
+
     initiated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

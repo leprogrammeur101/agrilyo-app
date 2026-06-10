@@ -7,18 +7,18 @@ from datetime import datetime
 from typing import Any, List
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.models.semences import (
     NiveauLabel,
     ProviderPaiement,
-    StatutFournisseur,
     StatutCommandeSemences,
+    StatutFournisseur,
     StatutPaiementSemences,
     StatutProduit,
-    TypeTransactionStripe,
     TypeCertification,
     TypeProduit,
+    TypeTransactionStripe,
     UniteStock,
 )
 
@@ -385,8 +385,6 @@ class CertificationCreate(BaseModel):
     def validate_expiration(
         cls, v: datetime | None, info: object
     ) -> datetime | None:
-        # On vérifie que date_expiration > date_delivrance si les deux sont fournies
-        # info.data n'est disponible qu'en Pydantic v2 via ValidationInfo
         return v
 
 
@@ -474,17 +472,65 @@ class PanierResponse(BaseModel):
     nombre_items: int
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# Commandes — Création
+# ═══════════════════════════════════════════════════════════════════════════════
+
 class LigneCommandeCreate(BaseModel):
-    """Produit et quantite envoyes pour creer une commande."""
+    """Un produit et sa quantité dans la liste de commande."""
 
     produit_id: UUID
-    quantite: float = Field(gt=0)
+    quantite: float = Field(gt=0, description="Dans l'unité de stock du produit")
 
 
 class CommandeCreate(BaseModel):
-    """Creation d'une commande depuis panier local ou panier persistant."""
+    """
+    Création d'une commande avec lignes explicites (ex: panier local mobile).
 
-    lignes: List[LigneCommandeCreate] = Field(min_length=1, max_length=50)
+    Utiliser CommandeFromPanierCreate pour convertir le panier persistant
+    sans avoir à renvoyer les lignes.
+    """
+
+    lignes: List[LigneCommandeCreate] = Field(
+        min_length=1,
+        max_length=50,
+        description="1 à 50 lignes. Les doublons produit_id seront rejetés.",
+    )
+    nom_contact: str | None = Field(default=None, max_length=200)
+    telephone_contact: str | None = Field(default=None, max_length=20)
+    region_livraison: str | None = Field(default=None, max_length=100)
+    ville_livraison: str | None = Field(default=None, max_length=100)
+    adresse_livraison: str | None = Field(default=None, max_length=1000)
+    note_client: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("telephone_contact")
+    @classmethod
+    def validate_telephone_contact(cls, v: str | None) -> str | None:
+        if v is not None and v and not v.startswith("+"):
+            raise ValueError("Le numero doit etre au format E.164 (ex: +2250700000000)")
+        return v
+
+    @model_validator(mode="after")
+    def validate_pas_de_doublons_produit(self) -> "CommandeCreate":
+        """Rejette les commandes avec deux lignes pour le même produit."""
+        ids = [str(l.produit_id) for l in self.lignes]
+        if len(ids) != len(set(ids)):
+            raise ValueError(
+                "Deux lignes ne peuvent pas référencer le même produit. "
+                "Fusionnez les quantités côté client."
+            )
+        return self
+
+
+class CommandeFromPanierCreate(BaseModel):
+    """
+    Conversion du panier persistant en commande — endpoint POST /semences/commandes/depuis-panier.
+
+    Le service récupère les items du panier de l'utilisateur connecté.
+    Pas besoin d'envoyer les lignes : elles sont déduites du panier.
+    Le panier est vidé après création réussie.
+    """
+
     nom_contact: str | None = Field(default=None, max_length=200)
     telephone_contact: str | None = Field(default=None, max_length=20)
     region_livraison: str | None = Field(default=None, max_length=100)
@@ -500,9 +546,18 @@ class CommandeCreate(BaseModel):
         return v
 
 
-class LigneCommandeSchema(BaseModel):
-    """Ligne commande snapshottee au moment de l'achat."""
+# ═══════════════════════════════════════════════════════════════════════════════
+# Commandes — Réponses
+# ═══════════════════════════════════════════════════════════════════════════════
 
+class LigneCommandeResponse(BaseModel):
+    """
+    Ligne commande snapshottée au moment de l'achat.
+
+    Toutes les données prix/produit/fournisseur sont gelées au moment de la commande :
+    même si le fournisseur modifie le prix ou supprime son produit,
+    l'historique de commande reste cohérent.
+    """
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -510,8 +565,12 @@ class LigneCommandeSchema(BaseModel):
     produit_id: UUID
     fournisseur_id: UUID
     quantite: float
+    # ── Snapshot prix ─────────────────────────────────────────────────────────
     prix_unitaire_snapshot: float
+    """Prix FCFA au moment de la commande — immuable."""
     montant_ligne: float
+    """quantite × prix_unitaire_snapshot — calculé à la création."""
+    # ── Snapshot catalogue ────────────────────────────────────────────────────
     produit_nom_snapshot: str
     produit_variete_snapshot: str | None
     culture_snapshot: str
@@ -520,9 +579,33 @@ class LigneCommandeSchema(BaseModel):
     created_at: datetime
 
 
-class PaiementSemencesSchema(BaseModel):
-    """Paiement associe a une commande."""
+# Alias rétrocompatible — ne pas casser le service existant qui utilise LigneCommandeSchema
+LigneCommandeSchema = LigneCommandeResponse
 
+
+class PaiementActifResume(BaseModel):
+    """
+    Résumé du paiement actif (dernier en date) pour l'affichage mobile.
+
+    N'expose pas les détails d'audit — utiliser PaiementSemencesSchema
+    pour les vues admin ou les pages de détail paiement.
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    provider: ProviderPaiement
+    statut: StatutPaiementSemences
+    montant: float
+    devise: str
+    checkout_url: str | None
+    """URL Stripe Checkout — valide ~30 min après création de la session."""
+    stripe_checkout_session_id: str | None
+    paid_at: datetime | None
+    created_at: datetime
+
+
+class PaiementSemencesSchema(BaseModel):
+    """Paiement complet associé à une commande — vue admin / détail."""
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -533,6 +616,7 @@ class PaiementSemencesSchema(BaseModel):
     montant: float
     stripe_checkout_session_id: str | None
     stripe_payment_intent_id: str | None
+    stripe_customer_id: str | None
     checkout_url: str | None
     initiated_at: datetime | None
     paid_at: datetime | None
@@ -544,24 +628,34 @@ class PaiementSemencesSchema(BaseModel):
 
 
 class CommandeResume(BaseModel):
-    """Resume commande pour listes mobile."""
+    """
+    Résumé commande pour les listes mobile — payload léger 3G.
 
+    Pas de lignes, pas de paiements complets : juste l'essentiel
+    pour afficher une carte commande dans l'historique.
+    """
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
     reference: str
+    """Référence courte affichée au client : AGR-S5-XXXXXXXX"""
     statut: StatutCommandeSemences
     devise: str
     montant_total: float
     nombre_lignes: int
     paid_at: datetime | None
+    cancelled_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
 
 class CommandeResponse(CommandeResume):
-    """Detail complet d'une commande."""
+    """
+    Détail complet d'une commande — GET /semences/commandes/{id}.
 
+    Inclut les lignes snapshottées et tous les paiements.
+    Utiliser CommandeDetail pour une vue enrichie avec paiement actif résumé.
+    """
     acheteur_id: UUID
     nom_contact: str | None
     telephone_contact: str | None
@@ -569,13 +663,43 @@ class CommandeResponse(CommandeResume):
     ville_livraison: str | None
     adresse_livraison: str | None
     note_client: str | None
-    cancelled_at: datetime | None
-    lignes: List[LigneCommandeSchema]
+    lignes: List[LigneCommandeResponse]
     paiements: List[PaiementSemencesSchema] = []
 
 
+class CommandeDetail(CommandeResume):
+    """
+    Vue commande enrichie pour l'écran de suivi mobile.
+
+    Différence avec CommandeResponse :
+    - paiement_actif : résumé du dernier paiement (accès direct sans parcourir la liste)
+    - lignes incluses mais sans l'acheteur_id (inutile côté mobile)
+    - checkout_url remontée directement pour le bouton « Payer »
+
+    Utilisé par : GET /semences/commandes/{id}/detail
+    """
+    model_config = ConfigDict(from_attributes=True)
+
+    nom_contact: str | None
+    telephone_contact: str | None
+    region_livraison: str | None
+    ville_livraison: str | None
+    adresse_livraison: str | None
+    note_client: str | None
+    lignes: List[LigneCommandeResponse]
+    paiement_actif: PaiementActifResume | None = None
+    """Dernier paiement en date — None si aucun paiement initié."""
+
+    @property
+    def checkout_url(self) -> str | None:
+        """Raccourci mobile : URL de paiement sans naviguer dans paiement_actif."""
+        if self.paiement_actif:
+            return self.paiement_actif.checkout_url
+        return None
+
+
 class CommandeListResponse(BaseModel):
-    """Liste paginee des commandes de l'utilisateur."""
+    """Liste paginée des commandes de l'utilisateur."""
 
     items: List[CommandeResume]
     total: int
@@ -584,33 +708,120 @@ class CommandeListResponse(BaseModel):
     pages: int
 
 
-class StripeCheckoutCreate(BaseModel):
-    """Initialisation Stripe Checkout pour une commande existante."""
+# ═══════════════════════════════════════════════════════════════════════════════
+# Commande — Mise à jour admin
+# ═══════════════════════════════════════════════════════════════════════════════
 
-    success_url: str = Field(max_length=1000)
-    cancel_url: str = Field(max_length=1000)
+class CommandeStatutUpdate(BaseModel):
+    """
+    Changement de statut par l'admin ou le fournisseur — PATCH /semences/commandes/{id}/statut.
+
+    Transitions autorisées côté service :
+      PAYEE → EN_PREPARATION (fournisseur démarre la préparation)
+      EN_PREPARATION → LIVREE (fournisseur confirme la livraison)
+      PAYEE | EN_PREPARATION → ANNULEE (admin seulement)
+    """
+
+    statut: StatutCommandeSemences = Field(
+        description="Nouveau statut. Seules certaines transitions sont autorisées."
+    )
+    note_admin: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Motif optionnel (obligatoire si ANNULEE)",
+    )
+
+    @model_validator(mode="after")
+    def validate_note_si_annulation(self) -> "CommandeStatutUpdate":
+        if self.statut == StatutCommandeSemences.ANNULEE and not self.note_admin:
+            raise ValueError(
+                "Une note explicative est requise lors d'une annulation."
+            )
+        return self
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Stripe — Checkout
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class StripeCheckoutCreate(BaseModel):
+    """
+    Initialisation Stripe Checkout pour une commande en statut BROUILLON
+    ou EN_ATTENTE_PAIEMENT.
+
+    success_url et cancel_url peuvent être des deep links Expo
+    (agrilyo://commandes/{id}/succes) ou des URLs web classiques.
+    Le service injectera {CHECKOUT_SESSION_ID} dans success_url si présent.
+    """
+
+    success_url: str = Field(
+        max_length=1000,
+        description="URL ou deep link après paiement réussi. "
+                    "Peut contenir {CHECKOUT_SESSION_ID} pour récupérer la session.",
+    )
+    cancel_url: str = Field(
+        max_length=1000,
+        description="URL ou deep link si l'utilisateur abandonne le paiement.",
+    )
 
     @field_validator("success_url", "cancel_url")
     @classmethod
     def validate_url(cls, v: str) -> str:
-        if not (v.startswith("http://") or v.startswith("https://") or v.startswith("agrilyo://")):
-            raise ValueError("URL invalide")
+        prefixes = ("http://", "https://", "agrilyo://")
+        if not any(v.startswith(p) for p in prefixes):
+            raise ValueError(
+                "URL invalide. Formats acceptés : http://, https://, agrilyo://"
+            )
         return v
 
 
 class StripeCheckoutResponse(BaseModel):
-    """Reponse mobile apres creation de session Stripe Checkout."""
+    """
+    Réponse mobile après création d'une session Stripe Checkout.
+
+    Le mobile ouvre checkout_url dans un WebView ou via Linking.openURL().
+    expires_at permet d'afficher un compte à rebours ou d'invalider le bouton.
+    """
 
     paiement_id: UUID
     commande_id: UUID
+    reference_commande: str
+    """Référence humaine (AGR-S5-…) pour affichage dans l'UI."""
     checkout_session_id: str
     checkout_url: str
+    expires_at: datetime
+    """La session Stripe Checkout expire après ~30 min. Passé ce délai, en recréer une."""
+    montant_xof: float
+    """Montant total en FCFA — affiché avant redirection vers Stripe."""
     publishable_key: str | None = None
+    """Clé publique Stripe — utile si on bascule vers Stripe Elements natif."""
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Stripe — Webhooks
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class StripeWebhookAck(BaseModel):
+    """
+    Réponse courte renvoyée à Stripe après traitement du webhook.
+
+    Stripe considère le webhook comme réussi si HTTP 200 est retourné
+    dans les 30 secondes. Ce schéma assure la cohérence du payload de réponse.
+    """
+
+    received: bool = True
+    event_id: str | None = None
+    """stripe_event.id — permet le débogage dans le dashboard Stripe."""
+    status: str = "ok"
+    """'ok' | 'ignored' | 'already_processed' — utile pour les logs."""
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Stripe — Audit (admin)
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class TransactionStripeSchema(BaseModel):
-    """Trace Stripe utile pour audit/debug admin."""
-
+    """Trace Stripe complète — utile pour audit et debug admin."""
     model_config = ConfigDict(from_attributes=True)
 
     id: UUID
@@ -625,32 +836,26 @@ class TransactionStripeSchema(BaseModel):
     devise: str | None
     statut_stripe: str | None
     payload: dict[str, Any] | None
+    """Payload Stripe réduit stocké en JSONB — ne jamais logger en clair côté client."""
     processed_at: datetime | None
     created_at: datetime
 
 
-class StripeWebhookAck(BaseModel):
-    """Reponse courte du webhook Stripe."""
-
-    received: bool = True
-    event_id: str | None = None
-    status: str = "ok"
-
+# ═══════════════════════════════════════════════════════════════════════════════
+# Filtres — Query params
+# ═══════════════════════════════════════════════════════════════════════════════
 
 class ProduitFiltres(BaseModel):
     """Paramètres de filtrage et pagination pour GET /semences/produits."""
 
-    # Filtres principaux
     culture: str | None = Field(default=None, description="Ex: riz, maïs, cacao")
     type_produit: TypeProduit | None = None
     region: str | None = Field(
         default=None,
         description="Filtre sur la région du fournisseur"
     )
-    # Filtres prix
     prix_min: float | None = Field(default=None, ge=0)
     prix_max: float | None = Field(default=None, ge=0)
-    # Filtres certification & label
     certifie: bool | None = Field(
         default=None,
         description="True = au moins une certification vérifiée"
@@ -659,15 +864,12 @@ class ProduitFiltres(BaseModel):
         default=None,
         description="Filtre sur le label du fournisseur"
     )
-    # Filtre stock
     en_stock: bool | None = Field(
         default=None,
         description="True = stock_disponible > 0"
     )
-    # Pagination
     page: int = Field(default=1, ge=1)
     size: int = Field(default=20, ge=1, le=100)
-    # Tri
     tri: str | None = Field(
         default="created_at_desc",
         description="created_at_desc | prix_asc | prix_desc | note_desc"
@@ -713,4 +915,4 @@ class FournisseurFiltres(BaseModel):
             raise ValueError(
                 f"Tri invalide. Valeurs autorisées : {valeurs_autorisees}"
             )
-        return v
+        return 
