@@ -76,6 +76,10 @@ export default function RootLayout() {
           <Stack.Screen name="foncier/contrat/[id]" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="foncier/contrat/creer" options={{ animation: "slide_from_bottom" }} />
           <Stack.Screen name="foncier/conversations" options={{ animation: "slide_from_right" }} />
+          {/* Sprint 4 - Semences */}
+          <Stack.Screen name="semences/[id]" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="semences/fournisseur/[id]" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="semences/panier" options={{ animation: "slide_from_bottom" }} />
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style="light" backgroundColor="#1A4D2E" />

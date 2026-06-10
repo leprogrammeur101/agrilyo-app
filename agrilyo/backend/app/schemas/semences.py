@@ -4,15 +4,19 @@ Validation de toutes les données entrantes et sortantes des endpoints semences.
 """
 
 from datetime import datetime
-from typing import List
+from typing import Any, List
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.semences import (
     NiveauLabel,
+    ProviderPaiement,
     StatutFournisseur,
+    StatutCommandeSemences,
+    StatutPaiementSemences,
     StatutProduit,
+    TypeTransactionStripe,
     TypeCertification,
     TypeProduit,
     UniteStock,
@@ -434,6 +438,204 @@ class PhotoUploadResponse(BaseModel):
 # ═══════════════════════════════════════════════════════════════════════════════
 # Filtres — Query params
 # ═══════════════════════════════════════════════════════════════════════════════
+
+class PanierItemCreate(BaseModel):
+    """Ajout ou remplacement d'un produit dans le panier persistant."""
+
+    produit_id: UUID
+    quantite: float = Field(gt=0, description="Quantite dans l'unite du produit")
+
+
+class PanierItemUpdate(BaseModel):
+    """Mise a jour de quantite d'une ligne panier."""
+
+    quantite: float = Field(gt=0)
+
+
+class PanierItemResponse(BaseModel):
+    """Ligne panier avec produit resume pour affichage mobile."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    produit_id: UUID
+    quantite: float
+    created_at: datetime
+    updated_at: datetime
+    produit: ProduitResume
+
+
+class PanierResponse(BaseModel):
+    """Panier persistant de l'utilisateur connecte."""
+
+    items: List[PanierItemResponse]
+    total_estime: float
+    devise: str = "XOF"
+    nombre_items: int
+
+
+class LigneCommandeCreate(BaseModel):
+    """Produit et quantite envoyes pour creer une commande."""
+
+    produit_id: UUID
+    quantite: float = Field(gt=0)
+
+
+class CommandeCreate(BaseModel):
+    """Creation d'une commande depuis panier local ou panier persistant."""
+
+    lignes: List[LigneCommandeCreate] = Field(min_length=1, max_length=50)
+    nom_contact: str | None = Field(default=None, max_length=200)
+    telephone_contact: str | None = Field(default=None, max_length=20)
+    region_livraison: str | None = Field(default=None, max_length=100)
+    ville_livraison: str | None = Field(default=None, max_length=100)
+    adresse_livraison: str | None = Field(default=None, max_length=1000)
+    note_client: str | None = Field(default=None, max_length=1000)
+
+    @field_validator("telephone_contact")
+    @classmethod
+    def validate_telephone_contact(cls, v: str | None) -> str | None:
+        if v is not None and v and not v.startswith("+"):
+            raise ValueError("Le numero doit etre au format E.164 (ex: +2250700000000)")
+        return v
+
+
+class LigneCommandeSchema(BaseModel):
+    """Ligne commande snapshottee au moment de l'achat."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    commande_id: UUID
+    produit_id: UUID
+    fournisseur_id: UUID
+    quantite: float
+    prix_unitaire_snapshot: float
+    montant_ligne: float
+    produit_nom_snapshot: str
+    produit_variete_snapshot: str | None
+    culture_snapshot: str
+    unite_stock_snapshot: UniteStock
+    fournisseur_nom_snapshot: str
+    created_at: datetime
+
+
+class PaiementSemencesSchema(BaseModel):
+    """Paiement associe a une commande."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    commande_id: UUID
+    provider: ProviderPaiement
+    statut: StatutPaiementSemences
+    devise: str
+    montant: float
+    stripe_checkout_session_id: str | None
+    stripe_payment_intent_id: str | None
+    checkout_url: str | None
+    initiated_at: datetime | None
+    paid_at: datetime | None
+    failed_at: datetime | None
+    failure_code: str | None
+    failure_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CommandeResume(BaseModel):
+    """Resume commande pour listes mobile."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    reference: str
+    statut: StatutCommandeSemences
+    devise: str
+    montant_total: float
+    nombre_lignes: int
+    paid_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class CommandeResponse(CommandeResume):
+    """Detail complet d'une commande."""
+
+    acheteur_id: UUID
+    nom_contact: str | None
+    telephone_contact: str | None
+    region_livraison: str | None
+    ville_livraison: str | None
+    adresse_livraison: str | None
+    note_client: str | None
+    cancelled_at: datetime | None
+    lignes: List[LigneCommandeSchema]
+    paiements: List[PaiementSemencesSchema] = []
+
+
+class CommandeListResponse(BaseModel):
+    """Liste paginee des commandes de l'utilisateur."""
+
+    items: List[CommandeResume]
+    total: int
+    page: int
+    size: int
+    pages: int
+
+
+class StripeCheckoutCreate(BaseModel):
+    """Initialisation Stripe Checkout pour une commande existante."""
+
+    success_url: str = Field(max_length=1000)
+    cancel_url: str = Field(max_length=1000)
+
+    @field_validator("success_url", "cancel_url")
+    @classmethod
+    def validate_url(cls, v: str) -> str:
+        if not (v.startswith("http://") or v.startswith("https://") or v.startswith("agrilyo://")):
+            raise ValueError("URL invalide")
+        return v
+
+
+class StripeCheckoutResponse(BaseModel):
+    """Reponse mobile apres creation de session Stripe Checkout."""
+
+    paiement_id: UUID
+    commande_id: UUID
+    checkout_session_id: str
+    checkout_url: str
+    publishable_key: str | None = None
+
+
+class TransactionStripeSchema(BaseModel):
+    """Trace Stripe utile pour audit/debug admin."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    commande_id: UUID | None
+    paiement_id: UUID | None
+    type_transaction: TypeTransactionStripe
+    stripe_event_id: str | None
+    stripe_checkout_session_id: str | None
+    stripe_payment_intent_id: str | None
+    stripe_event_type: str | None
+    montant: float | None
+    devise: str | None
+    statut_stripe: str | None
+    payload: dict[str, Any] | None
+    processed_at: datetime | None
+    created_at: datetime
+
+
+class StripeWebhookAck(BaseModel):
+    """Reponse courte du webhook Stripe."""
+
+    received: bool = True
+    event_id: str | None = None
+    status: str = "ok"
+
 
 class ProduitFiltres(BaseModel):
     """Paramètres de filtrage et pagination pour GET /semences/produits."""

@@ -10,9 +10,10 @@ from enum import Enum as PyEnum
 
 from sqlalchemy import (
     Boolean, CheckConstraint, DateTime, Enum, Float,
-    ForeignKey, Integer, SmallInteger, String, Text, func,
+    ForeignKey, Index, Integer, SmallInteger, String, Text,
+    UniqueConstraint, func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -65,6 +66,35 @@ class TypeCertification(str, PyEnum):
     ISO      = "ISO"       # Certification ISO (qualité)
     BIO      = "BIO"       # Agriculture biologique certifiée
     AUTRE    = "AUTRE"
+
+
+class StatutCommandeSemences(str, PyEnum):
+    BROUILLON = "BROUILLON"                  # Panier transforme en commande, non paye
+    EN_ATTENTE_PAIEMENT = "EN_ATTENTE_PAIEMENT"
+    PAYEE = "PAYEE"                          # Paiement Stripe confirme
+    ANNULEE = "ANNULEE"
+    ECHEC_PAIEMENT = "ECHEC_PAIEMENT"
+    EN_PREPARATION = "EN_PREPARATION"
+    LIVREE = "LIVREE"
+
+
+class StatutPaiementSemences(str, PyEnum):
+    INITIE = "INITIE"
+    EN_ATTENTE = "EN_ATTENTE"
+    REUSSI = "REUSSI"
+    ECHOUE = "ECHOUE"
+    ANNULE = "ANNULE"
+    REMBOURSE = "REMBOURSE"
+
+
+class ProviderPaiement(str, PyEnum):
+    STRIPE = "STRIPE"
+
+
+class TypeTransactionStripe(str, PyEnum):
+    CHECKOUT_SESSION = "CHECKOUT_SESSION"
+    PAYMENT_INTENT = "PAYMENT_INTENT"
+    WEBHOOK_EVENT = "WEBHOOK_EVENT"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -161,6 +191,9 @@ class FournisseurSemences(Base):
     produits = relationship(
         "ProduitSemences", back_populates="fournisseur",
         cascade="all, delete-orphan",
+    )
+    lignes_commande = relationship(
+        "LigneCommandeSemences", back_populates="fournisseur"
     )
 
 
@@ -281,6 +314,13 @@ class ProduitSemences(Base):
         "AvisProduit", back_populates="produit",
         cascade="all, delete-orphan",
         order_by="AvisProduit.created_at.desc()",
+    )
+    panier_items = relationship(
+        "PanierItemSemences", back_populates="produit",
+        cascade="all, delete-orphan",
+    )
+    lignes_commande = relationship(
+        "LigneCommandeSemences", back_populates="produit"
     )
 
 
@@ -439,3 +479,307 @@ class AvisProduit(Base):
     # ── Relations ─────────────────────────────────────────────────────────────
     produit = relationship("ProduitSemences", back_populates="avis")
     auteur  = relationship("User", foreign_keys=[auteur_id])
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PanierItemSemences
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class PanierItemSemences(Base):
+    __tablename__ = "panier_items_semences"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    produit_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("produits_semences.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    quantite: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "produit_id", name="uq_panier_user_produit"),
+        CheckConstraint("quantite > 0", name="ck_panier_quantite_positive"),
+    )
+
+    user = relationship("User", foreign_keys=[user_id])
+    produit = relationship("ProduitSemences", back_populates="panier_items")
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# CommandeSemences
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class CommandeSemences(Base):
+    __tablename__ = "commandes_semences"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    acheteur_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    reference: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        unique=True,
+        index=True,
+        comment="Reference courte affichee au client: AGR-S5-...",
+    )
+    statut: Mapped[StatutCommandeSemences] = mapped_column(
+        Enum(StatutCommandeSemences, name="statut_commande_semences_enum"),
+        nullable=False,
+        default=StatutCommandeSemences.BROUILLON,
+        index=True,
+    )
+
+    devise: Mapped[str] = mapped_column(String(3), nullable=False, default="XOF")
+    montant_total: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    nombre_lignes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    # Coordonnees de livraison/contact snapshottees au moment de la commande.
+    nom_contact: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    telephone_contact: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    region_livraison: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ville_livraison: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    adresse_livraison: Mapped[str | None] = mapped_column(Text, nullable=True)
+    note_client: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("montant_total >= 0", name="ck_commande_montant_total_positif"),
+        CheckConstraint("nombre_lignes >= 0", name="ck_commande_nombre_lignes_positif"),
+    )
+
+    acheteur = relationship("User", foreign_keys=[acheteur_id])
+    lignes = relationship(
+        "LigneCommandeSemences", back_populates="commande",
+        cascade="all, delete-orphan",
+        order_by="LigneCommandeSemences.created_at",
+    )
+    paiements = relationship(
+        "PaiementSemences", back_populates="commande",
+        cascade="all, delete-orphan",
+        order_by="PaiementSemences.created_at.desc()",
+    )
+    transactions_stripe = relationship(
+        "TransactionStripe", back_populates="commande",
+        cascade="all, delete-orphan",
+        order_by="TransactionStripe.created_at.desc()",
+    )
+
+
+class LigneCommandeSemences(Base):
+    __tablename__ = "lignes_commandes_semences"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    commande_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("commandes_semences.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    produit_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("produits_semences.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    fournisseur_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("fournisseurs_semences.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+    quantite: Mapped[float] = mapped_column(Float, nullable=False)
+    prix_unitaire_snapshot: Mapped[float] = mapped_column(Float, nullable=False)
+    montant_ligne: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # Snapshot catalogue pour tickets, webhooks et historique 3G/offline.
+    produit_nom_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+    produit_variete_snapshot: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    culture_snapshot: Mapped[str] = mapped_column(String(100), nullable=False)
+    unite_stock_snapshot: Mapped[UniteStock] = mapped_column(
+        Enum(UniteStock, name="unite_stock_enum"),
+        nullable=False,
+    )
+    fournisseur_nom_snapshot: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("quantite > 0", name="ck_ligne_commande_quantite_positive"),
+        CheckConstraint("prix_unitaire_snapshot >= 0", name="ck_ligne_commande_prix_positif"),
+        CheckConstraint("montant_ligne >= 0", name="ck_ligne_commande_montant_positif"),
+    )
+
+    commande = relationship("CommandeSemences", back_populates="lignes")
+    produit = relationship("ProduitSemences", back_populates="lignes_commande")
+    fournisseur = relationship("FournisseurSemences", back_populates="lignes_commande")
+
+
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+# PaiementSemences & TransactionStripe
+# â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+class PaiementSemences(Base):
+    __tablename__ = "paiements_semences"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    commande_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("commandes_semences.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+
+    provider: Mapped[ProviderPaiement] = mapped_column(
+        Enum(ProviderPaiement, name="provider_paiement_enum"),
+        nullable=False,
+        default=ProviderPaiement.STRIPE,
+    )
+    statut: Mapped[StatutPaiementSemences] = mapped_column(
+        Enum(StatutPaiementSemences, name="statut_paiement_semences_enum"),
+        nullable=False,
+        default=StatutPaiementSemences.INITIE,
+        index=True,
+    )
+    devise: Mapped[str] = mapped_column(String(3), nullable=False, default="XOF")
+    montant: Mapped[float] = mapped_column(Float, nullable=False)
+
+    stripe_checkout_session_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, unique=True, index=True
+    )
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    checkout_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    initiated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    paid_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failure_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    failure_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=func.now(), onupdate=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint("montant >= 0", name="ck_paiement_semences_montant_positif"),
+    )
+
+    commande = relationship("CommandeSemences", back_populates="paiements")
+    transactions_stripe = relationship(
+        "TransactionStripe", back_populates="paiement",
+        cascade="all, delete-orphan",
+        order_by="TransactionStripe.created_at.desc()",
+    )
+
+
+class TransactionStripe(Base):
+    __tablename__ = "transactions_stripe"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    commande_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("commandes_semences.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    paiement_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("paiements_semences.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    type_transaction: Mapped[TypeTransactionStripe] = mapped_column(
+        Enum(TypeTransactionStripe, name="type_transaction_stripe_enum"),
+        nullable=False,
+        index=True,
+    )
+    stripe_event_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
+        index=True,
+        comment="Idempotence webhook Stripe",
+    )
+    stripe_checkout_session_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+    stripe_payment_intent_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, index=True
+    )
+    stripe_event_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    montant: Mapped[float | None] = mapped_column(Float, nullable=True)
+    devise: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    statut_stripe: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    payload: Mapped[dict | None] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Payload Stripe reduit ou evenement brut utile au debug",
+    )
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "montant IS NULL OR montant >= 0",
+            name="ck_transaction_stripe_montant_positif",
+        ),
+        Index("ix_transactions_stripe_event_type", "stripe_event_type"),
+    )
+
+    commande = relationship("CommandeSemences", back_populates="transactions_stripe")
+    paiement = relationship("PaiementSemences", back_populates="transactions_stripe")

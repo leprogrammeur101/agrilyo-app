@@ -39,7 +39,7 @@ Développement solo. Déploiement backend sur Railway.
 - Catalogue national de semences et plants (variétés, certifications, stocks)
 - Profils fournisseurs vérifiés + **Label Ivoire Semences**
 - Commandes en ligne + panier multi-fournisseurs
-- Paiement mobile (CinetPay : Orange Money, MTN MoMo, Wave)
+- Paiement MVP via Stripe (Checkout Session / Payment Intent / webhooks)
 - Canal **USSD** pour les zones sans internet
 - Système d’avis et notation
 
@@ -70,7 +70,7 @@ Développement solo. Déploiement backend sur Railway.
 | Base de données | PostgreSQL 15+ (asyncpg) |
 | Migrations | Alembic |
 | Auth | OTP SMS (Africa's Talking) + JWT (python-jose) |
-| Paiement | CinetPay (Orange Money, MTN MoMo, Wave CI) |
+| Paiement | Stripe en phase test/MVP (Checkout Session, Payment Intent, webhooks signés) |
 | SMS / USSD | Africa's Talking |
 | Push | Firebase FCM |
 | Stockage | Cloudflare R2 (compatible S3, boto3) |
@@ -121,20 +121,9 @@ cremeIvoire:#F6F3ED  ← fond principal
 | Sprint 1 | Auth complète : SendOTP, VerifyOTP, Login, Refresh, Logout | ✅ Terminé |
 | Sprint 2 | M1 Foncier — Annonces (CRUD, badges, photos) | ✅ Terminé |
 | Sprint 3 | M1 Foncier — Contrats OTP+SHA256, messagerie, litiges, `mes-annonces`, `contrat/creer` | ✅ Terminé |
-| **Sprint 4** | **M2 Semences — Catalogue fournisseurs, produits, label Ivoire Semences** | **En cours — S4-6 mobile API/store implémenté, validation attendue** |
-
-            **S4-1** — Modèles SQLAlchemy (backend/app/models/semences.py)
-            - **S4-2** — Schémas Pydantic (backend/app/schemas/semences.py)
-            - **S4-3** — Migration Alembic → **Terminé**
-            - **S4-4** — Service métier (backend/app/services/semences_service.py)
-            - **S4-5** — Endpoints FastAPI (backend/app/api/v1/endpoints/semences.py)
-            - **S4-6** — API Layer + Store Zustand (mobile)
-            - **S4-7** — Composants UI réutilisables
-            - **S4-8** — Screens Expo Router
-        nous somme au S4-6
-        
-| Sprint 5 | M2 Semences — Commandes, CinetPay, USSD | — |
-| Sprint 6 | M3 Conseil — Agronomes, matching | — |
+| **Sprint 4** | **M2 Semences — Catalogue fournisseurs, produits, Label Ivoire Semences** | **✅ Terminé — S4-1 à S4-8 implémentés** |
+| **Sprint 5** | **M2 Semences — Commandes, panier persistant, paiement Stripe, webhooks, notifications** | **En cours — S5-2 schémas + migration Alembic implémentés, S5-3 à venir** |
+| Sprint 6 | M3 Conseil — Agronomes, matching | À préparer |
 | Sprint 7 | M3 Conseil — Sessions, planning, rappels | — |
 | Sprint 8 | Back-office Admin | — |
 | Sprint 9 | QA, tests, audit | — |
@@ -167,6 +156,9 @@ npx expo start --android
 - `JWT_SECRET_KEY` : générer avec `openssl rand -hex 64`
 - `OTP_DEV_BYPASS=true` + `OTP_DEV_CODE=123456` en développement
 - `AT_USERNAME=sandbox` pour Africa's Talking sandbox
+- `STRIPE_SECRET_KEY` : clé secrète Stripe test/MVP côté backend
+- `STRIPE_PUBLISHABLE_KEY` : clé publique Stripe côté mobile/web
+- `STRIPE_WEBHOOK_SECRET` : secret de signature des webhooks Stripe
 
 ---
 

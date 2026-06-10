@@ -13,5 +13,7 @@ from app.models.foncier import (  # noqa: F401
 from app.models.semences import (  # noqa: F401
     FournisseurSemences, ProduitSemences, PhotoProduit,
     CertificationProduit, AvisProduit,
+    PanierItemSemences, CommandeSemences, LigneCommandeSemences,
+    PaiementSemences, TransactionStripe,
 )
 # from app.models.conseil import Agronome, DemandeConseil, SessionConseil, Planning  # noqa
