@@ -39,7 +39,7 @@ Développement solo. Déploiement backend sur Railway.
 - Catalogue national de semences et plants (variétés, certifications, stocks)
 - Profils fournisseurs vérifiés + **Label Ivoire Semences**
 - Commandes en ligne + panier multi-fournisseurs
-- Paiement MVP via Stripe (Checkout Session / Payment Intent / webhooks)
+- Paiement reporté après MVP ; Sprint 5 limité aux commandes, panier persistant et suivi
 - Canal **USSD** pour les zones sans internet
 - Système d’avis et notation
 
@@ -70,7 +70,7 @@ Développement solo. Déploiement backend sur Railway.
 | Base de données | PostgreSQL 15+ (asyncpg) |
 | Migrations | Alembic |
 | Auth | OTP SMS (Africa's Talking) + JWT (python-jose) |
-| Paiement | Stripe en phase test/MVP (Checkout Session, Payment Intent, webhooks signés) |
+| Paiement | Reporté ; modèles de commande prêts, aucune intégration active dans le MVP courant |
 | SMS / USSD | Africa's Talking |
 | Push | Firebase FCM |
 | Stockage | Cloudflare R2 (compatible S3, boto3) |
@@ -122,8 +122,8 @@ cremeIvoire:#F6F3ED  ← fond principal
 | Sprint 2 | M1 Foncier — Annonces (CRUD, badges, photos) | ✅ Terminé |
 | Sprint 3 | M1 Foncier — Contrats OTP+SHA256, messagerie, litiges, `mes-annonces`, `contrat/creer` | ✅ Terminé |
 | **Sprint 4** | **M2 Semences — Catalogue fournisseurs, produits, Label Ivoire Semences** | **✅ Terminé — S4-1 à S4-8 implémentés** |
-| **Sprint 5** | **M2 Semences — Commandes, panier persistant, paiement Stripe, webhooks, notifications** | **En cours — S5-2 schémas + migration Alembic implémentés, S5-3 à venir** |
-| Sprint 6 | M3 Conseil — Agronomes, matching | À préparer |
+| **Sprint 5** | **M2 Semences — Commandes, panier persistant, suivi, notifications simples** | **En cours — commandes/panier/suivi mobile + SMS simples implémentés, paiement gelé** |
+| Sprint 6 | M3 Conseil — Agronomes, demandes, matching, planning | En cours — modèles, schémas et migration initiale ajoutés |
 | Sprint 7 | M3 Conseil — Sessions, planning, rappels | — |
 | Sprint 8 | Back-office Admin | — |
 | Sprint 9 | QA, tests, audit | — |
@@ -156,9 +156,7 @@ npx expo start --android
 - `JWT_SECRET_KEY` : générer avec `openssl rand -hex 64`
 - `OTP_DEV_BYPASS=true` + `OTP_DEV_CODE=123456` en développement
 - `AT_USERNAME=sandbox` pour Africa's Talking sandbox
-- `STRIPE_SECRET_KEY` : clé secrète Stripe test/MVP côté backend
-- `STRIPE_PUBLISHABLE_KEY` : clé publique Stripe côté mobile/web
-- `STRIPE_WEBHOOK_SECRET` : secret de signature des webhooks Stripe
+- Paiement Stripe/CinetPay reporté : ne pas brancher de provider tant que le sprint paiement n'est pas relancé
 
 ---
 

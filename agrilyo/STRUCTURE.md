@@ -43,7 +43,7 @@ agrilyo/                                ← Racine du repo Git
 │   │   │   │
 │   │   │   │   ── Sprint 2+ : créer ces fichiers ──
 │   │   │   ├── foncier.py              ← AnnonceCreate, AnnonceUpdate, AnnonceResponse, BadgeUpdate
-│   │   │   ├── semences.py             ← ProduitCreate, CommandeCreate, AvisCreate, PaiementCallback
+│   │   │   ├── semences.py             ← ProduitCreate, CommandeCreate, AvisCreate
 │   │   │   └── conseil.py              ← AgronomeCreate, DemandeConseilCreate, PlanningCreate
 │   │   │
 │   │   ├── api/                        ← Couche HTTP (routes FastAPI)
@@ -73,7 +73,7 @@ agrilyo/                                ← Racine du repo Git
 │   │   │   │
 │   │   │   │   ── Sprint 1+ : créer ces fichiers ──
 │   │   │   ├── auth_service.py         ← Logique SendOTP, VerifyOTP, gestion sessions
-│   │   │   ├── paiement_service.py     ← CinetPay : initier, callback, vérifier statut
+│   │   │   ├── paiement_service.py     ← Paiement reporté (placeholder, non branché)
 │   │   │   ├── storage_service.py      ← Cloudflare R2 : upload, URL signées, suppression
 │   │   │   ├── notification_service.py ← FCM push + SMS Africa's Talking
 │   │   │   └── matching_service.py     ← Algorithme matching agronomes/agriculteurs
@@ -133,7 +133,7 @@ agrilyo/                                ← Racine du repo Git
     │   │
     │   │   ── Sprint 2+ : créer ces fichiers ──
     │   ├── foncier.api.ts              ← CRUD annonces, upload photos, contrats
-    │   ├── semences.api.ts             ← Catalogue, commandes, paiement CinetPay
+    │   ├── semences.api.ts             ← Catalogue, panier, commandes
     │   └── conseil.api.ts              ← Agronomes, matching, sessions, planning
     │
     ├── store/                          ← État global Zustand (un fichier par domaine)

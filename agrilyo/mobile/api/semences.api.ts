@@ -15,6 +15,15 @@ export type NiveauLabel = "BRONZE" | "ARGENT" | "OR";
 export type StatutProduit = "ACTIF" | "RUPTURE" | "INACTIF" | "EN_ATTENTE";
 export type UniteStock = "KG" | "TONNE" | "UNITE" | "SACHET" | "BOTTE";
 export type TypeCertification = "ANADER" | "FIRCA" | "MINAGRI" | "ISO" | "BIO" | "AUTRE";
+export type StatutCommandeSemences =
+  | "BROUILLON"
+  | "CONFIRMEE"
+  | "EN_ATTENTE_PAIEMENT"
+  | "PAYEE"
+  | "ANNULEE"
+  | "ECHEC_PAIEMENT"
+  | "EN_PREPARATION"
+  | "LIVREE";
 export type TriProduits = "created_at_desc" | "prix_asc" | "prix_desc" | "note_desc";
 export type TriFournisseurs = "note_desc" | "created_at_desc" | "nombre_produits_desc";
 
@@ -252,6 +261,98 @@ export interface PhotoUploadResponse {
   message: string;
 }
 
+export interface PanierItemCreate {
+  produit_id: string;
+  quantite: number;
+}
+
+export interface PanierItemResponse {
+  id: string;
+  produit_id: string;
+  quantite: number;
+  created_at: string;
+  updated_at: string;
+  produit: ProduitResume;
+}
+
+export interface PanierResponse {
+  items: PanierItemResponse[];
+  total_estime: number;
+  devise: "XOF";
+  nombre_items: number;
+}
+
+export interface LigneCommandeCreate {
+  produit_id: string;
+  quantite: number;
+}
+
+export interface CommandeCreate {
+  lignes: LigneCommandeCreate[];
+  nom_contact?: string | null;
+  telephone_contact?: string | null;
+  region_livraison?: string | null;
+  ville_livraison?: string | null;
+  adresse_livraison?: string | null;
+  note_client?: string | null;
+}
+
+export type CommandeFromPanierCreate = Omit<CommandeCreate, "lignes">;
+
+export interface LigneCommandeResponse {
+  id: string;
+  commande_id: string;
+  produit_id: string;
+  fournisseur_id: string;
+  quantite: number;
+  prix_unitaire_snapshot: number;
+  montant_ligne: number;
+  produit_nom_snapshot: string;
+  produit_variete_snapshot: string | null;
+  culture_snapshot: string;
+  unite_stock_snapshot: UniteStock;
+  fournisseur_nom_snapshot: string;
+  created_at: string;
+}
+
+export interface CommandeResume {
+  id: string;
+  reference: string;
+  statut: StatutCommandeSemences;
+  devise: "XOF";
+  montant_total: number;
+  nombre_lignes: number;
+  paid_at: string | null;
+  cancelled_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CommandeDetail extends CommandeResume {
+  nom_contact: string | null;
+  telephone_contact: string | null;
+  region_livraison: string | null;
+  ville_livraison: string | null;
+  adresse_livraison: string | null;
+  note_client: string | null;
+  lignes: LigneCommandeResponse[];
+  paiement_actif: null;
+  checkout_url?: null;
+}
+
+export interface CommandeResponse extends CommandeDetail {
+  acheteur_id: string;
+  paiements: [];
+}
+
+export interface CommandeListResponse {
+  items: CommandeResume[];
+  total: number;
+  page: number;
+  size: number;
+  pages: number;
+}
+
 export const TYPE_PRODUIT_LABELS: Record<TypeProduit, string> = {
   SEMENCE: "Semence",
   PLANT: "Plant",
@@ -380,6 +481,62 @@ export const semencesApi = {
       "/semences/fournisseurs/moi",
       payload
     );
+    return data;
+  },
+
+  getPanier: async (): Promise<PanierResponse> => {
+    const { data } = await apiClient.get<PanierResponse>("/semences/panier");
+    return data;
+  },
+
+  ajouterPanierItem: async (payload: PanierItemCreate): Promise<PanierResponse> => {
+    const { data } = await apiClient.post<PanierResponse>("/semences/panier/items", payload);
+    return data;
+  },
+
+  modifierPanierItem: async (
+    produitId: string,
+    quantite: number
+  ): Promise<PanierResponse> => {
+    const { data } = await apiClient.patch<PanierResponse>(
+      `/semences/panier/items/${produitId}`,
+      { quantite }
+    );
+    return data;
+  },
+
+  retirerPanierItem: async (produitId: string): Promise<void> => {
+    await apiClient.delete(`/semences/panier/items/${produitId}`);
+  },
+
+  viderPanierServeur: async (): Promise<void> => {
+    await apiClient.delete("/semences/panier");
+  },
+
+  creerCommande: async (payload: CommandeCreate): Promise<CommandeResponse> => {
+    const { data } = await apiClient.post<CommandeResponse>("/semences/commandes", payload);
+    return data;
+  },
+
+  creerCommandeDepuisPanier: async (
+    payload: CommandeFromPanierCreate
+  ): Promise<CommandeResponse> => {
+    const { data } = await apiClient.post<CommandeResponse>(
+      "/semences/commandes/depuis-panier",
+      payload
+    );
+    return data;
+  },
+
+  listerCommandes: async (page = 1, size = 20): Promise<CommandeListResponse> => {
+    const { data } = await apiClient.get<CommandeListResponse>("/semences/commandes", {
+      params: { page, size },
+    });
+    return data;
+  },
+
+  getCommande: async (id: string): Promise<CommandeDetail> => {
+    const { data } = await apiClient.get<CommandeDetail>(`/semences/commandes/${id}`);
     return data;
   },
 };

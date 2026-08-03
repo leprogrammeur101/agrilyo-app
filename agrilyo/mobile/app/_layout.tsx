@@ -80,9 +80,11 @@ export default function RootLayout() {
           <Stack.Screen name="semences/[id]" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="semences/fournisseur/[id]" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="semences/panier" options={{ animation: "slide_from_bottom" }} />
+          <Stack.Screen name="semences/commandes" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="semences/commandes/[id]" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="+not-found" />
         </Stack>
-        <StatusBar style="light" backgroundColor="#1A4D2E" />
+        <StatusBar style="light" />
       </QueryClientProvider>
     </GestureHandlerRootView>
   );

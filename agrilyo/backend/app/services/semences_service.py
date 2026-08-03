@@ -3,31 +3,46 @@ Service Semences AGRILYO - Logique metier M2.
 Catalogue fournisseurs, produits, certifications, photos, avis et Label Ivoire.
 """
 
+import secrets
 import uuid
 from datetime import datetime, timezone
 from typing import List
 
-from sqlalchemy import and_, exists, func, select
+from sqlalchemy import and_, delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.semences import (
     AvisProduit,
     CertificationProduit,
+    CommandeSemences,
     FournisseurSemences,
+    LigneCommandeSemences,
     NiveauLabel,
+    PanierItemSemences,
     PhotoProduit,
     ProduitSemences,
+    StatutCommandeSemences,
     StatutFournisseur,
     StatutProduit,
     TypeCertification,
 )
 from app.models.user import User, UserRole
+from app.services.notification_service import (
+    notifier_commande_confirmee,
+    notifier_statut_commande,
+)
 from app.schemas.semences import (
     AvisCreate,
     AvisProduitSchema,
     AvisListResponse,
     CertificationCreate,
+    CommandeCreate,
+    CommandeDetail,
+    CommandeFromPanierCreate,
+    CommandeListResponse,
+    CommandeResponse,
+    CommandeStatutUpdate,
     FournisseurCreate,
     FournisseurFiltres,
     FournisseurListResponse,
@@ -35,6 +50,12 @@ from app.schemas.semences import (
     FournisseurStatutUpdate,
     FournisseurUpdate,
     LabelIvoireUpdate,
+    LigneCommandeCreate,
+    LigneCommandeResponse,
+    PanierItemCreate,
+    PanierItemResponse,
+    PanierItemUpdate,
+    PanierResponse,
     ProduitCreate,
     ProduitFiltres,
     ProduitListResponse,
@@ -67,6 +88,16 @@ class FournisseurAlreadyExistsError(SemencesError):
 class ProduitNotFoundError(SemencesError):
     def __init__(self):
         super().__init__("Produit introuvable", 404)
+
+
+class CommandeNotFoundError(SemencesError):
+    def __init__(self):
+        super().__init__("Commande introuvable", 404)
+
+
+class PanierVideError(SemencesError):
+    def __init__(self):
+        super().__init__("Le panier est vide", 400)
 
 
 class SemencesAccessDeniedError(SemencesError):
@@ -143,6 +174,176 @@ def _produit_resume(produit: ProduitSemences) -> ProduitResume:
         fournisseur=FournisseurResume.model_validate(produit.fournisseur),
         created_at=produit.created_at,
     )
+
+
+def _panier_response(items: list[PanierItemSemences]) -> PanierResponse:
+    total = sum(item.quantite * item.produit.prix_unitaire for item in items)
+    return PanierResponse(
+        items=[
+            PanierItemResponse(
+                id=item.id,
+                produit_id=item.produit_id,
+                quantite=item.quantite,
+                created_at=item.created_at,
+                updated_at=item.updated_at,
+                produit=_produit_resume(item.produit),
+            )
+            for item in items
+        ],
+        total_estime=total,
+        nombre_items=len(items),
+    )
+
+
+def _commande_resume(commande: CommandeSemences):
+    from app.schemas.semences import CommandeResume
+
+    return CommandeResume(
+        id=commande.id,
+        reference=commande.reference,
+        statut=commande.statut,
+        devise=commande.devise,
+        montant_total=commande.montant_total,
+        nombre_lignes=commande.nombre_lignes,
+        paid_at=commande.paid_at,
+        cancelled_at=commande.cancelled_at,
+        created_at=commande.created_at,
+        updated_at=commande.updated_at,
+    )
+
+
+def _ligne_commande_response(ligne: LigneCommandeSemences) -> LigneCommandeResponse:
+    return LigneCommandeResponse.model_validate(ligne)
+
+
+def _commande_response(commande: CommandeSemences) -> CommandeResponse:
+    return CommandeResponse(
+        **_commande_resume(commande).model_dump(),
+        acheteur_id=commande.acheteur_id,
+        nom_contact=commande.nom_contact,
+        telephone_contact=commande.telephone_contact,
+        region_livraison=commande.region_livraison,
+        ville_livraison=commande.ville_livraison,
+        adresse_livraison=commande.adresse_livraison,
+        note_client=commande.note_client,
+        lignes=[_ligne_commande_response(ligne) for ligne in commande.lignes],
+        paiements=[],
+    )
+
+
+def _commande_detail(commande: CommandeSemences) -> CommandeDetail:
+    return CommandeDetail(
+        **_commande_resume(commande).model_dump(),
+        nom_contact=commande.nom_contact,
+        telephone_contact=commande.telephone_contact,
+        region_livraison=commande.region_livraison,
+        ville_livraison=commande.ville_livraison,
+        adresse_livraison=commande.adresse_livraison,
+        note_client=commande.note_client,
+        lignes=[_ligne_commande_response(ligne) for ligne in commande.lignes],
+        paiement_actif=None,
+    )
+
+
+def _reference_commande() -> str:
+    return f"AGR-S5-{secrets.token_hex(4).upper()}"
+
+
+def _assert_produit_commandable(produit: ProduitSemences, quantite: float) -> None:
+    if produit.statut != StatutProduit.ACTIF:
+        raise SemencesError(f"{produit.nom} n'est pas disponible a la commande", 400)
+    if produit.fournisseur.statut != StatutFournisseur.VERIFIE:
+        raise SemencesError(f"Le fournisseur de {produit.nom} n'est pas verifie", 400)
+    if quantite < produit.stock_minimum_commande:
+        raise SemencesError(
+            f"Commande minimale pour {produit.nom}: {produit.stock_minimum_commande} {produit.unite_stock.value}",
+            400,
+        )
+    if quantite > produit.stock_disponible:
+        raise SemencesError(
+            f"Stock insuffisant pour {produit.nom}: {produit.stock_disponible} {produit.unite_stock.value} disponible",
+            409,
+        )
+
+
+async def _get_produit_commandable(
+    produit_id: uuid.UUID,
+    quantite: float,
+    db: AsyncSession,
+) -> ProduitSemences:
+    result = await db.execute(
+        select(ProduitSemences)
+        .options(
+            selectinload(ProduitSemences.fournisseur),
+            selectinload(ProduitSemences.photos),
+        )
+        .where(ProduitSemences.id == produit_id)
+    )
+    produit = result.scalar_one_or_none()
+    if not produit:
+        raise ProduitNotFoundError()
+    _assert_produit_commandable(produit, quantite)
+    return produit
+
+
+async def _charger_panier(user: User, db: AsyncSession) -> list[PanierItemSemences]:
+    result = await db.execute(
+        select(PanierItemSemences)
+        .options(
+            selectinload(PanierItemSemences.produit).selectinload(ProduitSemences.fournisseur),
+            selectinload(PanierItemSemences.produit).selectinload(ProduitSemences.photos),
+        )
+        .where(PanierItemSemences.user_id == user.id)
+        .order_by(PanierItemSemences.created_at.asc())
+    )
+    return list(result.scalars().all())
+
+
+async def _charger_commande(
+    commande_id: uuid.UUID,
+    db: AsyncSession,
+) -> CommandeSemences:
+    result = await db.execute(
+        select(CommandeSemences)
+        .options(
+            selectinload(CommandeSemences.acheteur),
+            selectinload(CommandeSemences.lignes),
+        )
+        .where(CommandeSemences.id == commande_id)
+    )
+    commande = result.scalar_one_or_none()
+    if not commande:
+        raise CommandeNotFoundError()
+    return commande
+
+
+def _lignes_depuis_produits(
+    commande: CommandeSemences,
+    lignes: list[tuple[ProduitSemences, float]],
+) -> None:
+    montant_total = 0.0
+    for produit, quantite in lignes:
+        montant_ligne = quantite * produit.prix_unitaire
+        montant_total += montant_ligne
+        commande.lignes.append(
+            LigneCommandeSemences(
+                produit_id=produit.id,
+                fournisseur_id=produit.fournisseur_id,
+                quantite=quantite,
+                prix_unitaire_snapshot=produit.prix_unitaire,
+                montant_ligne=montant_ligne,
+                produit_nom_snapshot=produit.nom,
+                produit_variete_snapshot=produit.variete,
+                culture_snapshot=produit.culture,
+                unite_stock_snapshot=produit.unite_stock,
+                fournisseur_nom_snapshot=produit.fournisseur.nom_commercial,
+            )
+        )
+        produit.stock_disponible -= quantite
+        produit.statut = _statut_produit_selon_stock(produit)
+
+    commande.montant_total = montant_total
+    commande.nombre_lignes = len(lignes)
 
 
 async def recalculer_stats_fournisseur(
@@ -772,3 +973,238 @@ async def lister_avis_produit(
         size=size,
         pages=pages,
     )
+
+
+# =============================================================================
+# Panier persistant & commandes sans paiement
+# =============================================================================
+
+async def get_panier(
+    user: User,
+    db: AsyncSession,
+) -> PanierResponse:
+    items = await _charger_panier(user=user, db=db)
+    return _panier_response(items)
+
+
+async def ajouter_item_panier(
+    data: PanierItemCreate,
+    user: User,
+    db: AsyncSession,
+) -> PanierResponse:
+    produit = await _get_produit_commandable(
+        produit_id=data.produit_id,
+        quantite=data.quantite,
+        db=db,
+    )
+
+    result = await db.execute(
+        select(PanierItemSemences).where(
+            PanierItemSemences.user_id == user.id,
+            PanierItemSemences.produit_id == produit.id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if item:
+        item.quantite = data.quantite
+    else:
+        db.add(
+            PanierItemSemences(
+                user_id=user.id,
+                produit_id=produit.id,
+                quantite=data.quantite,
+            )
+        )
+
+    await db.flush()
+    return await get_panier(user=user, db=db)
+
+
+async def modifier_item_panier(
+    produit_id: uuid.UUID,
+    data: PanierItemUpdate,
+    user: User,
+    db: AsyncSession,
+) -> PanierResponse:
+    await _get_produit_commandable(
+        produit_id=produit_id,
+        quantite=data.quantite,
+        db=db,
+    )
+    result = await db.execute(
+        select(PanierItemSemences).where(
+            PanierItemSemences.user_id == user.id,
+            PanierItemSemences.produit_id == produit_id,
+        )
+    )
+    item = result.scalar_one_or_none()
+    if not item:
+        raise SemencesError("Ligne panier introuvable", 404)
+
+    item.quantite = data.quantite
+    await db.flush()
+    return await get_panier(user=user, db=db)
+
+
+async def retirer_item_panier(
+    produit_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    await db.execute(
+        delete(PanierItemSemences).where(
+            PanierItemSemences.user_id == user.id,
+            PanierItemSemences.produit_id == produit_id,
+        )
+    )
+
+
+async def vider_panier(
+    user: User,
+    db: AsyncSession,
+) -> None:
+    await db.execute(
+        delete(PanierItemSemences).where(PanierItemSemences.user_id == user.id)
+    )
+
+
+async def creer_commande(
+    data: CommandeCreate,
+    user: User,
+    db: AsyncSession,
+) -> CommandeResponse:
+    lignes: list[tuple[ProduitSemences, float]] = []
+    for ligne in data.lignes:
+        produit = await _get_produit_commandable(
+            produit_id=ligne.produit_id,
+            quantite=ligne.quantite,
+            db=db,
+        )
+        lignes.append((produit, ligne.quantite))
+
+    commande = CommandeSemences(
+        acheteur_id=user.id,
+        reference=_reference_commande(),
+        statut=StatutCommandeSemences.CONFIRMEE,
+        nom_contact=data.nom_contact or user.display_name,
+        telephone_contact=data.telephone_contact or user.phone_number,
+        region_livraison=data.region_livraison or user.region,
+        ville_livraison=data.ville_livraison,
+        adresse_livraison=data.adresse_livraison,
+        note_client=data.note_client,
+    )
+    db.add(commande)
+    _lignes_depuis_produits(commande, lignes)
+    await db.flush()
+    await db.refresh(commande, attribute_names=["lignes"])
+    await notifier_commande_confirmee(commande=commande, acheteur=user)
+    return _commande_response(commande)
+
+
+async def creer_commande_depuis_panier(
+    data: CommandeFromPanierCreate,
+    user: User,
+    db: AsyncSession,
+) -> CommandeResponse:
+    items = await _charger_panier(user=user, db=db)
+    if not items:
+        raise PanierVideError()
+
+    lignes_data = [
+        LigneCommandeCreate(produit_id=item.produit_id, quantite=item.quantite)
+        for item in items
+    ]
+    commande = await creer_commande(
+        data=CommandeCreate(
+            lignes=lignes_data,
+            nom_contact=data.nom_contact,
+            telephone_contact=data.telephone_contact,
+            region_livraison=data.region_livraison,
+            ville_livraison=data.ville_livraison,
+            adresse_livraison=data.adresse_livraison,
+            note_client=data.note_client,
+        ),
+        user=user,
+        db=db,
+    )
+    await vider_panier(user=user, db=db)
+    return commande
+
+
+async def lister_commandes(
+    user: User,
+    db: AsyncSession,
+    page: int = 1,
+    size: int = 20,
+) -> CommandeListResponse:
+    query = (
+        select(CommandeSemences)
+        .where(CommandeSemences.acheteur_id == user.id)
+        .order_by(CommandeSemences.created_at.desc())
+    )
+    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_result.scalar_one()
+
+    result = await db.execute(query.offset((page - 1) * size).limit(size))
+    commandes = result.scalars().all()
+    pages = max(1, -(-total // size))
+    return CommandeListResponse(
+        items=[_commande_resume(commande) for commande in commandes],
+        total=total,
+        page=page,
+        size=size,
+        pages=pages,
+    )
+
+
+async def get_commande(
+    commande_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> CommandeDetail:
+    commande = await _charger_commande(commande_id=commande_id, db=db)
+    if commande.acheteur_id != user.id and not user.has_role(UserRole.ADMIN):
+        raise SemencesAccessDeniedError()
+    return _commande_detail(commande)
+
+
+async def mettre_a_jour_statut_commande(
+    commande_id: uuid.UUID,
+    data: CommandeStatutUpdate,
+    user: User,
+    db: AsyncSession,
+) -> CommandeDetail:
+    commande = await _charger_commande(commande_id=commande_id, db=db)
+    if not user.has_role(UserRole.ADMIN):
+        fournisseur = await _get_fournisseur_by_user(user=user, db=db)
+        fournisseur_ids = {ligne.fournisseur_id for ligne in commande.lignes}
+        if fournisseur.id not in fournisseur_ids:
+            raise SemencesAccessDeniedError()
+
+    transitions = {
+        StatutCommandeSemences.CONFIRMEE: {
+            StatutCommandeSemences.EN_PREPARATION,
+            StatutCommandeSemences.ANNULEE,
+        },
+        StatutCommandeSemences.EN_PREPARATION: {
+            StatutCommandeSemences.LIVREE,
+            StatutCommandeSemences.ANNULEE,
+        },
+    }
+    statuts_autorises = transitions.get(commande.statut, set())
+    if data.statut not in statuts_autorises:
+        raise SemencesError("Transition de statut non autorisee", 400)
+    if data.statut == StatutCommandeSemences.ANNULEE and not user.has_role(UserRole.ADMIN):
+        raise SemencesAccessDeniedError("Seul un administrateur peut annuler une commande")
+
+    commande.statut = data.statut
+    if data.statut == StatutCommandeSemences.ANNULEE:
+        commande.cancelled_at = datetime.now(timezone.utc)
+        for ligne in commande.lignes:
+            produit = await _get_produit_for_update(produit_id=ligne.produit_id, db=db)
+            produit.stock_disponible += ligne.quantite
+            produit.statut = _statut_produit_selon_stock(produit)
+
+    await db.flush()
+    await notifier_statut_commande(commande=commande, acheteur=commande.acheteur)
+    return _commande_detail(commande)

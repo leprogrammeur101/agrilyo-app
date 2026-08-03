@@ -70,6 +70,7 @@ class TypeCertification(str, PyEnum):
 
 class StatutCommandeSemences(str, PyEnum):
     BROUILLON = "BROUILLON"                  # Panier transforme en commande, non paye
+    CONFIRMEE = "CONFIRMEE"                  # Commande confirmee hors paiement MVP
     EN_ATTENTE_PAIEMENT = "EN_ATTENTE_PAIEMENT"
     PAYEE = "PAYEE"                          # Paiement Stripe confirme
     ANNULEE = "ANNULEE"

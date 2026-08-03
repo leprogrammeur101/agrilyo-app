@@ -142,18 +142,27 @@ export default function SemencesScreen() {
           <Text style={styles.headerTitle}>Semences</Text>
           <Text style={styles.headerSub}>Catalogue certifie</Text>
         </View>
-        <TouchableOpacity
-          style={styles.cartButton}
-          onPress={() => router.push("/semences/panier" as never)}
-          activeOpacity={0.86}
-        >
-          <Ionicons name="basket-outline" size={21} color={Colors.orProfond} />
-          {nombreArticles > 0 ? (
-            <View style={styles.cartCount}>
-              <Text style={styles.cartCountText}>{nombreArticles}</Text>
-            </View>
-          ) : null}
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => router.push("/semences/commandes" as never)}
+            activeOpacity={0.86}
+          >
+            <Ionicons name="receipt-outline" size={21} color={Colors.orProfond} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.headerButton}
+            onPress={() => router.push("/semences/panier" as never)}
+            activeOpacity={0.86}
+          >
+            <Ionicons name="basket-outline" size={21} color={Colors.orProfond} />
+            {nombreArticles > 0 ? (
+              <View style={styles.cartCount}>
+                <Text style={styles.cartCountText}>{nombreArticles}</Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <FlatList
@@ -218,7 +227,11 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bodyRegular,
     fontSize: FontSize.sm,
   },
-  cartButton: {
+  headerActions: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  headerButton: {
     alignItems: "center",
     backgroundColor: Colors.blanc,
     borderRadius: 20,

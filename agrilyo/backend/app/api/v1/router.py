@@ -19,9 +19,7 @@ from app.api.v1.endpoints import auth     # Sprint 1
 from app.api.v1.endpoints import foncier  # Sprint 2
 from app.api.v1.endpoints import contrat  # Sprint 3
 from app.api.v1.endpoints import semences  # Sprint 4
-
-# Sprints futurs — décommenter au moment du développement
-# from app.api.v1.endpoints import conseil   # Sprint 5
+from app.api.v1.endpoints import conseil  # Sprint 6
 
 api_router = APIRouter()
 
@@ -40,5 +38,5 @@ api_router.include_router(contrat.router, prefix="/foncier", tags=["M1 Contrats 
 # ── Sprint 4 — M2 Semences ────────────────────────────────────────────────────
 api_router.include_router(semences.router, prefix="/semences", tags=["M2 Semences"])
 
-# ── Sprint 5 — M3 Conseil ─────────────────────────────────────────────────────
-# api_router.include_router(conseil.router, prefix="/conseil", tags=["M3 Conseil"])
+# ── Sprint 6 — M3 Conseil ─────────────────────────────────────────────────────
+api_router.include_router(conseil.router, prefix="/conseil", tags=["M3 Conseil"])

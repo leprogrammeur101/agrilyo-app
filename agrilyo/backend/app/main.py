@@ -41,7 +41,7 @@ app = FastAPI(
         "API REST d'AGRILYO — Plateforme agricole de Côte d'Ivoire.\n\n"
         "**Modules Phase 1 :** M1 Foncier · M2 Semences · M3 Conseil\n\n"
         "**Auth :** Numéro de téléphone CI + OTP SMS → JWT\n\n"
-        "**Paiement :** CinetPay (Orange Money, MTN MoMo, Wave CI)"
+        "**Paiement :** gelé pour le MVP courant ; commandes préparées sans encaissement"
     ),
     docs_url="/docs" if not settings.is_production else None,
     redoc_url="/redoc" if not settings.is_production else None,

@@ -717,9 +717,9 @@ class CommandeStatutUpdate(BaseModel):
     Changement de statut par l'admin ou le fournisseur — PATCH /semences/commandes/{id}/statut.
 
     Transitions autorisées côté service :
-      PAYEE → EN_PREPARATION (fournisseur démarre la préparation)
+      CONFIRMEE → EN_PREPARATION (fournisseur démarre la préparation)
       EN_PREPARATION → LIVREE (fournisseur confirme la livraison)
-      PAYEE | EN_PREPARATION → ANNULEE (admin seulement)
+      CONFIRMEE | EN_PREPARATION → ANNULEE (admin seulement)
     """
 
     statut: StatutCommandeSemences = Field(

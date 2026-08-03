@@ -2,7 +2,15 @@
  * Panier Semences - preparation Sprint 5 commandes.
  */
 
-import { FlatList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Alert,
+  FlatList,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -64,7 +72,25 @@ function PanierRow({ item }: { item: PanierItem }) {
 }
 
 export default function PanierSemencesScreen() {
-  const { panier, nombreArticles, totalPanier, viderPanier } = useSemencesStore();
+  const {
+    panier,
+    nombreArticles,
+    totalPanier,
+    viderPanier,
+    confirmerCommandeDepuisPanier,
+    isSubmittingCommande,
+  } = useSemencesStore();
+
+  const handleConfirmerCommande = async () => {
+    const commande = await confirmerCommandeDepuisPanier();
+    if (!commande) return;
+
+    Alert.alert(
+      "Commande confirmee",
+      `Reference ${commande.reference}. Le fournisseur pourra preparer votre commande.`,
+      [{ text: "OK", onPress: () => router.replace("/(tabs)/semences" as never) }]
+    );
+  };
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -114,9 +140,20 @@ export default function PanierSemencesScreen() {
             <Text style={styles.totalLabel}>Total estimatif</Text>
             <Text style={styles.totalValue}>{formatFCFA(totalPanier)}</Text>
           </View>
-          <TouchableOpacity style={styles.checkoutButton} activeOpacity={0.85}>
-            <Ionicons name="card-outline" size={20} color={Colors.blanc} />
-            <Text style={styles.checkoutButtonText}>Commande au Sprint 5</Text>
+          <TouchableOpacity
+            style={[styles.checkoutButton, isSubmittingCommande && styles.checkoutButtonDisabled]}
+            activeOpacity={0.85}
+            disabled={isSubmittingCommande}
+            onPress={handleConfirmerCommande}
+          >
+            {isSubmittingCommande ? (
+              <ActivityIndicator color={Colors.blanc} />
+            ) : (
+              <Ionicons name="checkmark-circle-outline" size={20} color={Colors.blanc} />
+            )}
+            <Text style={styles.checkoutButtonText}>
+              {isSubmittingCommande ? "Confirmation..." : "Confirmer la commande"}
+            </Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -287,6 +324,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     justifyContent: "center",
     paddingVertical: 16,
+  },
+  checkoutButtonDisabled: {
+    opacity: 0.7,
   },
   checkoutButtonText: {
     color: Colors.blanc,

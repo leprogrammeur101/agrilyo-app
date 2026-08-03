@@ -6,7 +6,7 @@ Routes catalogue, fournisseurs, produits, certifications, avis et label.
 import uuid
 from typing import NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.auth import get_authenticated_user
@@ -24,6 +24,12 @@ from app.schemas.semences import (
     AvisProduitSchema,
     CertificationCreate,
     CertificationProduitSchema,
+    CommandeCreate,
+    CommandeDetail,
+    CommandeFromPanierCreate,
+    CommandeListResponse,
+    CommandeResponse,
+    CommandeStatutUpdate,
     FournisseurCreate,
     FournisseurFiltres,
     FournisseurListResponse,
@@ -31,6 +37,9 @@ from app.schemas.semences import (
     FournisseurStatutUpdate,
     FournisseurUpdate,
     LabelIvoireUpdate,
+    PanierItemCreate,
+    PanierItemUpdate,
+    PanierResponse,
     PhotoUploadResponse,
     ProduitCreate,
     ProduitFiltres,
@@ -47,21 +56,31 @@ from app.services.semences_service import (
     SemencesError,
     ajouter_avis,
     ajouter_certification,
+    ajouter_item_panier,
     ajouter_photo_produit,
+    creer_commande,
+    creer_commande_depuis_panier,
     creer_fournisseur,
     creer_produit,
+    get_commande,
     get_fournisseur_by_id,
     get_mon_fournisseur,
+    get_panier,
     get_produit_by_id,
     lister_avis_produit,
+    lister_commandes,
     lister_fournisseurs,
     lister_produits,
     mes_produits,
+    mettre_a_jour_statut_commande,
     mettre_a_jour_label_ivoire,
     mettre_a_jour_statut_fournisseur,
     mettre_a_jour_statut_produit,
     modifier_fournisseur,
+    modifier_item_panier,
     modifier_produit,
+    retirer_item_panier,
+    vider_panier,
     verifier_certification,
 )
 
@@ -78,6 +97,178 @@ def _require_admin(user: User) -> None:
             status_code=403,
             detail="Seul un administrateur peut effectuer cette action",
         )
+
+
+# =============================================================================
+# Panier & commandes - routes statiques avant /produits/{id}
+# =============================================================================
+
+@router.get(
+    "/panier",
+    response_model=PanierResponse,
+    summary="Consulter le panier semences persistant",
+)
+async def get_panier_endpoint(
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> PanierResponse:
+    return await get_panier(user=current_user, db=db)
+
+
+@router.post(
+    "/panier/items",
+    response_model=PanierResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajouter ou remplacer une ligne du panier",
+)
+async def ajouter_item_panier_endpoint(
+    data: PanierItemCreate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> PanierResponse:
+    try:
+        return await ajouter_item_panier(data=data, user=current_user, db=db)
+    except SemencesError as e:
+        _raise_semences_error(e)
+
+
+@router.patch(
+    "/panier/items/{produit_id}",
+    response_model=PanierResponse,
+    summary="Modifier la quantite d'une ligne panier",
+)
+async def modifier_item_panier_endpoint(
+    produit_id: uuid.UUID,
+    data: PanierItemUpdate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> PanierResponse:
+    try:
+        return await modifier_item_panier(
+            produit_id=produit_id,
+            data=data,
+            user=current_user,
+            db=db,
+        )
+    except SemencesError as e:
+        _raise_semences_error(e)
+
+
+@router.delete(
+    "/panier/items/{produit_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Retirer une ligne du panier",
+)
+async def retirer_item_panier_endpoint(
+    produit_id: uuid.UUID,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await retirer_item_panier(produit_id=produit_id, user=current_user, db=db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.delete(
+    "/panier",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Vider le panier semences",
+)
+async def vider_panier_endpoint(
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    await vider_panier(user=current_user, db=db)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get(
+    "/commandes",
+    response_model=CommandeListResponse,
+    summary="Lister mes commandes semences",
+)
+async def lister_commandes_endpoint(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommandeListResponse:
+    return await lister_commandes(user=current_user, db=db, page=page, size=size)
+
+
+@router.post(
+    "/commandes",
+    response_model=CommandeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Creer une commande semences sans paiement",
+)
+async def creer_commande_endpoint(
+    data: CommandeCreate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommandeResponse:
+    try:
+        return await creer_commande(data=data, user=current_user, db=db)
+    except SemencesError as e:
+        _raise_semences_error(e)
+
+
+@router.post(
+    "/commandes/depuis-panier",
+    response_model=CommandeResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Transformer le panier persistant en commande",
+)
+async def creer_commande_depuis_panier_endpoint(
+    data: CommandeFromPanierCreate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommandeResponse:
+    try:
+        return await creer_commande_depuis_panier(data=data, user=current_user, db=db)
+    except SemencesError as e:
+        _raise_semences_error(e)
+
+
+@router.get(
+    "/commandes/{commande_id}",
+    response_model=CommandeDetail,
+    summary="Consulter le detail d'une commande semences",
+)
+async def get_commande_endpoint(
+    commande_id: uuid.UUID,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommandeDetail:
+    try:
+        return await get_commande(
+            commande_id=commande_id,
+            user=current_user,
+            db=db,
+        )
+    except SemencesError as e:
+        _raise_semences_error(e)
+
+
+@router.patch(
+    "/commandes/{commande_id}/statut",
+    response_model=CommandeDetail,
+    summary="Mettre a jour le statut d'une commande semences",
+)
+async def statut_commande_endpoint(
+    commande_id: uuid.UUID,
+    data: CommandeStatutUpdate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> CommandeDetail:
+    try:
+        return await mettre_a_jour_statut_commande(
+            commande_id=commande_id,
+            data=data,
+            user=current_user,
+            db=db,
+        )
+    except SemencesError as e:
+        _raise_semences_error(e)
 
 
 # =============================================================================

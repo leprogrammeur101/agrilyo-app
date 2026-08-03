@@ -16,4 +16,7 @@ from app.models.semences import (  # noqa: F401
     PanierItemSemences, CommandeSemences, LigneCommandeSemences,
     PaiementSemences, TransactionStripe,
 )
-# from app.models.conseil import Agronome, DemandeConseil, SessionConseil, Planning  # noqa
+from app.models.conseil import (  # noqa: F401
+    Agronome, DemandeConseil, SessionConseil,
+    PlanningCultural, OperationPlanning,
+)

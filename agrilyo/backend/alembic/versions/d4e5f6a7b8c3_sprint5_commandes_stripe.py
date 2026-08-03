@@ -26,6 +26,7 @@ depends_on = None
 def upgrade() -> None:
     statut_commande_semences_enum = postgresql.ENUM(
         "BROUILLON",
+        "CONFIRMEE",
         "EN_ATTENTE_PAIEMENT",
         "PAYEE",
         "ANNULEE",

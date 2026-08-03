@@ -4,8 +4,13 @@
  */
 
 import { create } from "zustand";
+import { createJSONStorage, persist } from "zustand/middleware";
+import * as SecureStore from "expo-secure-store";
 import { getApiErrorMessage } from "../api/client";
 import {
+  CommandeFromPanierCreate,
+  CommandeResponse,
+  CommandeResume,
   FournisseurDetail,
   FournisseurFiltres,
   FournisseurResume,
@@ -50,6 +55,10 @@ interface SemencesState {
   panier: PanierItem[];
   nombreArticles: number;
   totalPanier: number;
+  commandes: CommandeResume[];
+  commandeSelectionnee: CommandeResponse | null;
+  isLoadingCommandes: boolean;
+  isSubmittingCommande: boolean;
 
   error: string | null;
 
@@ -77,6 +86,11 @@ interface SemencesState {
   modifierQuantite: (produitId: string, quantite: number) => void;
   retirerDuPanier: (produitId: string) => void;
   viderPanier: () => void;
+  confirmerCommandeDepuisPanier: (
+    payload?: CommandeFromPanierCreate
+  ) => Promise<CommandeResponse | null>;
+  chargerCommandes: () => Promise<void>;
+  chargerCommande: (id: string) => Promise<void>;
   clearError: () => void;
 }
 
@@ -100,7 +114,15 @@ const calculerPanier = (panier: PanierItem[]) => ({
   ),
 });
 
-export const useSemencesStore = create<SemencesState>()((set, get) => ({
+const secureStoreStorage = {
+  getItem: (name: string) => SecureStore.getItemAsync(name),
+  setItem: (name: string, value: string) => SecureStore.setItemAsync(name, value),
+  removeItem: (name: string) => SecureStore.deleteItemAsync(name),
+};
+
+export const useSemencesStore = create<SemencesState>()(
+  persist(
+    (set, get) => ({
   produits: [],
   totalProduits: 0,
   pageProduits: 1,
@@ -125,6 +147,10 @@ export const useSemencesStore = create<SemencesState>()((set, get) => ({
   panier: [],
   nombreArticles: 0,
   totalPanier: 0,
+  commandes: [],
+  commandeSelectionnee: null,
+  isLoadingCommandes: false,
+  isSubmittingCommande: false,
   error: null,
 
   chargerProduits: async (reset = false) => {
@@ -356,5 +382,79 @@ export const useSemencesStore = create<SemencesState>()((set, get) => ({
 
   viderPanier: () => set({ panier: [], nombreArticles: 0, totalPanier: 0 }),
 
-  clearError: () => set({ error: null }),
-}));
+  confirmerCommandeDepuisPanier: async (payload = {}) => {
+    const { panier } = get();
+    if (panier.length === 0) {
+      set({ error: "Le panier est vide" });
+      return null;
+    }
+
+    set({ isSubmittingCommande: true, error: null });
+    try {
+      await semencesApi.viderPanierServeur();
+      for (const item of panier) {
+        await semencesApi.ajouterPanierItem({
+          produit_id: item.produit.id,
+          quantite: item.quantite,
+        });
+      }
+      const commande = await semencesApi.creerCommandeDepuisPanier(payload);
+      set({
+        panier: [],
+        nombreArticles: 0,
+        totalPanier: 0,
+        commandeSelectionnee: commande,
+        isSubmittingCommande: false,
+      });
+      await get().chargerCommandes();
+      return commande;
+    } catch (error) {
+      set({
+        error: getApiErrorMessage(error),
+        isSubmittingCommande: false,
+      });
+      return null;
+    }
+  },
+
+  chargerCommandes: async () => {
+    set({ isLoadingCommandes: true, error: null });
+    try {
+      const response = await semencesApi.listerCommandes();
+      set({ commandes: response.items, isLoadingCommandes: false });
+    } catch (error) {
+      set({
+        error: getApiErrorMessage(error),
+        isLoadingCommandes: false,
+      });
+    }
+  },
+
+  chargerCommande: async (id) => {
+    set({ isLoadingCommandes: true, commandeSelectionnee: null, error: null });
+    try {
+      const commande = await semencesApi.getCommande(id);
+      set({
+        commandeSelectionnee: commande as CommandeResponse,
+        isLoadingCommandes: false,
+      });
+    } catch (error) {
+      set({
+        error: getApiErrorMessage(error),
+        isLoadingCommandes: false,
+      });
+    }
+  },
+
+      clearError: () => set({ error: null }),
+    }),
+    {
+      name: "agrilyo-semences-panier",
+      storage: createJSONStorage(() => secureStoreStorage),
+      partialize: (state) => ({
+        panier: state.panier,
+        ...calculerPanier(state.panier),
+      }),
+    }
+  )
+);
