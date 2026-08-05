@@ -1,6 +1,5 @@
 """
-Endpoints M1 Foncier — AGRILYO
-Ordre : routes statiques → routes dynamiques (règle FastAPI obligatoire)
+Endpoints M1 Foncier — AGRILYO (corrigé)
 """
 
 import uuid
@@ -23,12 +22,6 @@ from app.services.foncier_service import (
 )
 
 router = APIRouter()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Routes statiques (pas de paramètre dynamique dans le path)
-# DOIVENT être déclarées avant les routes dynamiques /{annonce_id}
-# ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get(
     "",
@@ -55,7 +48,6 @@ async def lister_annonces_endpoint(
     )
     return await lister_annonces(filtres=filtres, db=db)
 
-
 @router.post(
     "",
     response_model=AnnonceResponse,
@@ -67,12 +59,16 @@ async def creer_annonce_endpoint(
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> AnnonceResponse:
+    # ✅ CORRIGÉ : persistance explicite du rôle
     if not current_user.has_role(UserRole.BAILLEUR):
         current_user.add_role(UserRole.BAILLEUR)
+        db.add(current_user)  # Marque l'objet comme dirty
+        await db.commit()     # Persiste immédiatement
+        await db.refresh(current_user)
+
     annonce = await creer_annonce(data=data, bailleur=current_user, db=db)
     annonce = await get_annonce_by_id(annonce.id, db)
     return AnnonceResponse.model_validate(annonce)
-
 
 @router.get(
     "/mes-annonces",
@@ -86,11 +82,6 @@ async def mes_annonces_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> AnnonceListResponse:
     return await mes_annonces(user=current_user, db=db, page=page, size=size)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Routes dynamiques — APRÈS les routes statiques
-# ═══════════════════════════════════════════════════════════════════════════════
 
 @router.get(
     "/{annonce_id}",
@@ -106,7 +97,6 @@ async def detail_annonce_endpoint(
         return AnnonceResponse.model_validate(annonce)
     except AnnonceNotFoundError:
         raise HTTPException(status_code=404, detail="Annonce introuvable")
-
 
 @router.patch(
     "/{annonce_id}",
@@ -128,7 +118,6 @@ async def modifier_annonce_endpoint(
         raise HTTPException(status_code=404, detail="Annonce introuvable")
     except AnnonceAccessDeniedError:
         raise HTTPException(status_code=403, detail="Accès refusé")
-
 
 @router.patch(
     "/{annonce_id}/badge",

@@ -1,12 +1,11 @@
 """
-Endpoints M2 Semences & Plants - AGRILYO.
-Routes catalogue, fournisseurs, produits, certifications, avis et label.
+Endpoints M2 Semences & Plants - AGRILYO (corrigé)
 """
 
 import uuid
 from typing import NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.auth import get_authenticated_user
@@ -83,13 +82,12 @@ from app.services.semences_service import (
     vider_panier,
     verifier_certification,
 )
+from app.services.storage_service import upload_image_to_r2
 
 router = APIRouter()
 
-
 def _raise_semences_error(error: SemencesError) -> NoReturn:
     raise HTTPException(status_code=error.status_code, detail=error.message)
-
 
 def _require_admin(user: User) -> None:
     if not user.has_role(UserRole.ADMIN):
@@ -98,29 +96,18 @@ def _require_admin(user: User) -> None:
             detail="Seul un administrateur peut effectuer cette action",
         )
 
-
 # =============================================================================
-# Panier & commandes - routes statiques avant /produits/{id}
+# Panier & commandes
 # =============================================================================
 
-@router.get(
-    "/panier",
-    response_model=PanierResponse,
-    summary="Consulter le panier semences persistant",
-)
+@router.get("/panier", response_model=PanierResponse)
 async def get_panier_endpoint(
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> PanierResponse:
     return await get_panier(user=current_user, db=db)
 
-
-@router.post(
-    "/panier/items",
-    response_model=PanierResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Ajouter ou remplacer une ligne du panier",
-)
+@router.post("/panier/items", response_model=PanierResponse, status_code=status.HTTP_201_CREATED)
 async def ajouter_item_panier_endpoint(
     data: PanierItemCreate,
     current_user: User = Depends(get_authenticated_user),
@@ -131,12 +118,7 @@ async def ajouter_item_panier_endpoint(
     except SemencesError as e:
         _raise_semences_error(e)
 
-
-@router.patch(
-    "/panier/items/{produit_id}",
-    response_model=PanierResponse,
-    summary="Modifier la quantite d'une ligne panier",
-)
+@router.patch("/panier/items/{produit_id}", response_model=PanierResponse)
 async def modifier_item_panier_endpoint(
     produit_id: uuid.UUID,
     data: PanierItemUpdate,
@@ -144,48 +126,30 @@ async def modifier_item_panier_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> PanierResponse:
     try:
-        return await modifier_item_panier(
-            produit_id=produit_id,
-            data=data,
-            user=current_user,
-            db=db,
-        )
+        return await modifier_item_panier(produit_id=produit_id, data=data, user=current_user, db=db)
     except SemencesError as e:
         _raise_semences_error(e)
 
-
-@router.delete(
-    "/panier/items/{produit_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Retirer une ligne du panier",
-)
+@router.delete("/panier/items/{produit_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def retirer_item_panier_endpoint(
     produit_id: uuid.UUID,
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await retirer_item_panier(produit_id=produit_id, user=current_user, db=db)
+    await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-
-@router.delete(
-    "/panier",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Vider le panier semences",
-)
+@router.delete("/panier", status_code=status.HTTP_204_NO_CONTENT)
 async def vider_panier_endpoint(
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     await vider_panier(user=current_user, db=db)
+    await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
-
-@router.get(
-    "/commandes",
-    response_model=CommandeListResponse,
-    summary="Lister mes commandes semences",
-)
+@router.get("/commandes", response_model=CommandeListResponse)
 async def lister_commandes_endpoint(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
@@ -194,13 +158,7 @@ async def lister_commandes_endpoint(
 ) -> CommandeListResponse:
     return await lister_commandes(user=current_user, db=db, page=page, size=size)
 
-
-@router.post(
-    "/commandes",
-    response_model=CommandeResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Creer une commande semences sans paiement",
-)
+@router.post("/commandes", response_model=CommandeResponse, status_code=status.HTTP_201_CREATED)
 async def creer_commande_endpoint(
     data: CommandeCreate,
     current_user: User = Depends(get_authenticated_user),
@@ -211,13 +169,7 @@ async def creer_commande_endpoint(
     except SemencesError as e:
         _raise_semences_error(e)
 
-
-@router.post(
-    "/commandes/depuis-panier",
-    response_model=CommandeResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Transformer le panier persistant en commande",
-)
+@router.post("/commandes/depuis-panier", response_model=CommandeResponse, status_code=status.HTTP_201_CREATED)
 async def creer_commande_depuis_panier_endpoint(
     data: CommandeFromPanierCreate,
     current_user: User = Depends(get_authenticated_user),
@@ -228,32 +180,18 @@ async def creer_commande_depuis_panier_endpoint(
     except SemencesError as e:
         _raise_semences_error(e)
 
-
-@router.get(
-    "/commandes/{commande_id}",
-    response_model=CommandeDetail,
-    summary="Consulter le detail d'une commande semences",
-)
+@router.get("/commandes/{commande_id}", response_model=CommandeDetail)
 async def get_commande_endpoint(
     commande_id: uuid.UUID,
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> CommandeDetail:
     try:
-        return await get_commande(
-            commande_id=commande_id,
-            user=current_user,
-            db=db,
-        )
+        return await get_commande(commande_id=commande_id, user=current_user, db=db)
     except SemencesError as e:
         _raise_semences_error(e)
 
-
-@router.patch(
-    "/commandes/{commande_id}/statut",
-    response_model=CommandeDetail,
-    summary="Mettre a jour le statut d'une commande semences",
-)
+@router.patch("/commandes/{commande_id}/statut", response_model=CommandeDetail)
 async def statut_commande_endpoint(
     commande_id: uuid.UUID,
     data: CommandeStatutUpdate,
@@ -261,25 +199,15 @@ async def statut_commande_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> CommandeDetail:
     try:
-        return await mettre_a_jour_statut_commande(
-            commande_id=commande_id,
-            data=data,
-            user=current_user,
-            db=db,
-        )
+        return await mettre_a_jour_statut_commande(commande_id=commande_id, data=data, user=current_user, db=db)
     except SemencesError as e:
         _raise_semences_error(e)
 
-
 # =============================================================================
-# Produits - routes statiques
+# Produits
 # =============================================================================
 
-@router.get(
-    "/produits",
-    response_model=ProduitListResponse,
-    summary="Lister le catalogue de semences et plants",
-)
+@router.get("/produits", response_model=ProduitListResponse)
 async def lister_produits_endpoint(
     culture: str | None = Query(default=None),
     type_produit: TypeProduit | None = Query(default=None),
@@ -309,13 +237,7 @@ async def lister_produits_endpoint(
     )
     return await lister_produits(filtres=filtres, db=db)
 
-
-@router.post(
-    "/produits",
-    response_model=ProduitResponse,
-    status_code=201,
-    summary="Creer un produit semence/plant",
-)
+@router.post("/produits", response_model=ProduitResponse, status_code=201)
 async def creer_produit_endpoint(
     data: ProduitCreate,
     current_user: User = Depends(get_authenticated_user),
@@ -328,12 +250,7 @@ async def creer_produit_endpoint(
     except (FournisseurNotFoundError, SemencesAccessDeniedError, SemencesError) as e:
         _raise_semences_error(e)
 
-
-@router.get(
-    "/produits/mes-produits",
-    response_model=ProduitListResponse,
-    summary="Lister mes produits fournisseur",
-)
+@router.get("/produits/mes-produits", response_model=ProduitListResponse)
 async def mes_produits_endpoint(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
@@ -345,16 +262,11 @@ async def mes_produits_endpoint(
     except FournisseurNotFoundError as e:
         _raise_semences_error(e)
 
-
 # =============================================================================
-# Fournisseurs - routes statiques
+# Fournisseurs
 # =============================================================================
 
-@router.get(
-    "/fournisseurs",
-    response_model=FournisseurListResponse,
-    summary="Lister les fournisseurs verifies",
-)
+@router.get("/fournisseurs", response_model=FournisseurListResponse)
 async def lister_fournisseurs_endpoint(
     region: str | None = Query(default=None),
     label_ivoire: NiveauLabel | None = Query(default=None),
@@ -376,13 +288,7 @@ async def lister_fournisseurs_endpoint(
     )
     return await lister_fournisseurs(filtres=filtres, db=db)
 
-
-@router.post(
-    "/fournisseurs",
-    response_model=FournisseurResponse,
-    status_code=201,
-    summary="Creer mon profil fournisseur",
-)
+@router.post("/fournisseurs", response_model=FournisseurResponse, status_code=201)
 async def creer_fournisseur_endpoint(
     data: FournisseurCreate,
     current_user: User = Depends(get_authenticated_user),
@@ -394,12 +300,7 @@ async def creer_fournisseur_endpoint(
     except FournisseurAlreadyExistsError as e:
         _raise_semences_error(e)
 
-
-@router.get(
-    "/fournisseurs/moi",
-    response_model=FournisseurResponse,
-    summary="Recuperer mon profil fournisseur",
-)
+@router.get("/fournisseurs/moi", response_model=FournisseurResponse)
 async def mon_fournisseur_endpoint(
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
@@ -410,12 +311,7 @@ async def mon_fournisseur_endpoint(
     except FournisseurNotFoundError as e:
         _raise_semences_error(e)
 
-
-@router.patch(
-    "/fournisseurs/moi",
-    response_model=FournisseurResponse,
-    summary="Modifier mon profil fournisseur",
-)
+@router.patch("/fournisseurs/moi", response_model=FournisseurResponse)
 async def modifier_mon_fournisseur_endpoint(
     data: FournisseurUpdate,
     current_user: User = Depends(get_authenticated_user),
@@ -427,16 +323,11 @@ async def modifier_mon_fournisseur_endpoint(
     except FournisseurNotFoundError as e:
         _raise_semences_error(e)
 
-
 # =============================================================================
-# Certifications - routes statiques admin
+# Certifications
 # =============================================================================
 
-@router.patch(
-    "/certifications/{certification_id}/verification",
-    response_model=CertificationProduitSchema,
-    summary="Verifier une certification produit (Admin)",
-)
+@router.patch("/certifications/{certification_id}/verification", response_model=CertificationProduitSchema)
 async def verifier_certification_endpoint(
     certification_id: uuid.UUID,
     est_verifie: bool = Query(default=True),
@@ -445,25 +336,17 @@ async def verifier_certification_endpoint(
 ) -> CertificationProduitSchema:
     _require_admin(current_user)
     try:
-        certification = await verifier_certification(
-            certification_id=certification_id,
-            est_verifie=est_verifie,
-            db=db,
-        )
+        certification = await verifier_certification(certification_id=certification_id, est_verifie=est_verifie, db=db)
+        await db.commit()
         return CertificationProduitSchema.model_validate(certification)
     except SemencesError as e:
         _raise_semences_error(e)
 
-
 # =============================================================================
-# Produits - routes dynamiques
+# Produits dynamiques
 # =============================================================================
 
-@router.get(
-    "/produits/{produit_id}",
-    response_model=ProduitResponse,
-    summary="Detail d'un produit semence/plant",
-)
+@router.get("/produits/{produit_id}", response_model=ProduitResponse)
 async def detail_produit_endpoint(
     produit_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -474,12 +357,7 @@ async def detail_produit_endpoint(
     except ProduitNotFoundError as e:
         _raise_semences_error(e)
 
-
-@router.patch(
-    "/produits/{produit_id}",
-    response_model=ProduitResponse,
-    summary="Modifier un produit",
-)
+@router.patch("/produits/{produit_id}", response_model=ProduitResponse)
 async def modifier_produit_endpoint(
     produit_id: uuid.UUID,
     data: ProduitUpdate,
@@ -487,23 +365,13 @@ async def modifier_produit_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> ProduitResponse:
     try:
-        produit = await modifier_produit(
-            produit_id=produit_id,
-            data=data,
-            user=current_user,
-            db=db,
-        )
+        produit = await modifier_produit(produit_id=produit_id, data=data, user=current_user, db=db)
         produit = await get_produit_by_id(produit.id, db, incrementer_vues=False)
         return ProduitResponse.model_validate(produit)
     except (ProduitNotFoundError, SemencesAccessDeniedError) as e:
         _raise_semences_error(e)
 
-
-@router.patch(
-    "/produits/{produit_id}/statut",
-    response_model=ProduitResponse,
-    summary="Changer le statut d'un produit (Admin)",
-)
+@router.patch("/produits/{produit_id}/statut", response_model=ProduitResponse)
 async def statut_produit_endpoint(
     produit_id: uuid.UUID,
     data: ProduitStatutUpdate,
@@ -512,46 +380,58 @@ async def statut_produit_endpoint(
 ) -> ProduitResponse:
     _require_admin(current_user)
     try:
-        produit = await mettre_a_jour_statut_produit(
-            produit_id=produit_id,
-            data=data,
-            db=db,
-        )
+        produit = await mettre_a_jour_statut_produit(produit_id=produit_id, data=data, db=db)
         produit = await get_produit_by_id(produit.id, db, incrementer_vues=False)
         return ProduitResponse.model_validate(produit)
     except ProduitNotFoundError as e:
         _raise_semences_error(e)
 
-
+# =============================================================================
+# Upload sécurisé de photos avec UploadFile
+# =============================================================================
 @router.post(
     "/produits/{produit_id}/photos",
     response_model=PhotoUploadResponse,
     status_code=201,
-    summary="Enregistrer une photo produit deja uploadee",
+    summary="Uploader une photo produit",
 )
 async def ajouter_photo_produit_endpoint(
     produit_id: uuid.UUID,
-    nom_fichier: str = Query(..., min_length=1, max_length=255),
-    url_stockage: str = Query(..., min_length=8, max_length=512),
-    url_miniature: str | None = Query(default=None, max_length=512),
-    taille_bytes: int | None = Query(default=None, ge=0),
+    file: UploadFile = File(...),
     ordre: int = Query(default=0, ge=0, le=20),
     est_principale: bool = Query(default=False),
     current_user: User = Depends(get_authenticated_user),
     db: AsyncSession = Depends(get_db),
 ) -> PhotoUploadResponse:
     try:
+        # Validation type MIME
+        if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Type de fichier non autorisé. Utilisez JPEG, PNG ou WebP."
+            )
+
+        # Upload sécurisé vers R2
+        upload_result = await upload_image_to_r2(
+            file_stream=file.file,
+            filename=file.filename or "image.jpg",
+            content_type=file.content_type,
+            prefix="products",
+        )
+
         photo = await ajouter_photo_produit(
             produit_id=produit_id,
-            nom_fichier=nom_fichier,
-            url_stockage=url_stockage,
-            url_miniature=url_miniature,
-            taille_bytes=taille_bytes,
+            nom_fichier=upload_result["key"],
+            url_stockage=upload_result["url"],
+            url_miniature=None,
+            taille_bytes=upload_result["size"],
             ordre=ordre,
             est_principale=est_principale,
             user=current_user,
             db=db,
         )
+        await db.commit()
+
         return PhotoUploadResponse(
             id=photo.id,
             url_stockage=photo.url_stockage,
@@ -561,14 +441,10 @@ async def ajouter_photo_produit_endpoint(
         )
     except (ProduitNotFoundError, SemencesAccessDeniedError) as e:
         _raise_semences_error(e)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-
-@router.post(
-    "/produits/{produit_id}/certifications",
-    response_model=CertificationProduitSchema,
-    status_code=201,
-    summary="Ajouter une certification produit",
-)
+@router.post("/produits/{produit_id}/certifications", response_model=CertificationProduitSchema, status_code=201)
 async def ajouter_certification_endpoint(
     produit_id: uuid.UUID,
     data: CertificationCreate,
@@ -576,22 +452,13 @@ async def ajouter_certification_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> CertificationProduitSchema:
     try:
-        certification = await ajouter_certification(
-            produit_id=produit_id,
-            data=data,
-            user=current_user,
-            db=db,
-        )
+        certification = await ajouter_certification(produit_id=produit_id, data=data, user=current_user, db=db)
+        await db.commit()
         return CertificationProduitSchema.model_validate(certification)
     except (ProduitNotFoundError, SemencesAccessDeniedError) as e:
         _raise_semences_error(e)
 
-
-@router.get(
-    "/produits/{produit_id}/avis",
-    response_model=AvisListResponse,
-    summary="Lister les avis publies d'un produit",
-)
+@router.get("/produits/{produit_id}/avis", response_model=AvisListResponse)
 async def lister_avis_produit_endpoint(
     produit_id: uuid.UUID,
     page: int = Query(default=1, ge=1),
@@ -599,22 +466,11 @@ async def lister_avis_produit_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> AvisListResponse:
     try:
-        return await lister_avis_produit(
-            produit_id=produit_id,
-            db=db,
-            page=page,
-            size=size,
-        )
+        return await lister_avis_produit(produit_id=produit_id, db=db, page=page, size=size)
     except ProduitNotFoundError as e:
         _raise_semences_error(e)
 
-
-@router.post(
-    "/produits/{produit_id}/avis",
-    response_model=AvisProduitSchema,
-    status_code=201,
-    summary="Ajouter un avis sur un produit",
-)
+@router.post("/produits/{produit_id}/avis", response_model=AvisProduitSchema, status_code=201)
 async def ajouter_avis_endpoint(
     produit_id: uuid.UUID,
     data: AvisCreate,
@@ -622,26 +478,17 @@ async def ajouter_avis_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> AvisProduitSchema:
     try:
-        avis = await ajouter_avis(
-            produit_id=produit_id,
-            data=data,
-            auteur=current_user,
-            db=db,
-        )
+        avis = await ajouter_avis(produit_id=produit_id, data=data, auteur=current_user, db=db)
+        await db.commit()
         return AvisProduitSchema.model_validate(avis)
     except (ProduitNotFoundError, SemencesError) as e:
         _raise_semences_error(e)
 
-
 # =============================================================================
-# Fournisseurs - routes dynamiques
+# Fournisseurs dynamiques
 # =============================================================================
 
-@router.get(
-    "/fournisseurs/{fournisseur_id}",
-    response_model=FournisseurResponse,
-    summary="Detail d'un fournisseur",
-)
+@router.get("/fournisseurs/{fournisseur_id}", response_model=FournisseurResponse)
 async def detail_fournisseur_endpoint(
     fournisseur_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -652,12 +499,21 @@ async def detail_fournisseur_endpoint(
     except FournisseurNotFoundError as e:
         _raise_semences_error(e)
 
+@router.patch("/fournisseurs/{fournisseur_id}", response_model=FournisseurResponse)
+async def modifier_fournisseur_endpoint(
+    fournisseur_id: uuid.UUID,
+    data: FournisseurUpdate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> FournisseurResponse:
+    _require_admin(current_user)
+    try:
+        fournisseur = await modifier_fournisseur(fournisseur_id=fournisseur_id, data=data, user=current_user, db=db)
+        return FournisseurResponse.model_validate(fournisseur)
+    except FournisseurNotFoundError as e:
+        _raise_semences_error(e)
 
-@router.patch(
-    "/fournisseurs/{fournisseur_id}/statut",
-    response_model=FournisseurResponse,
-    summary="Changer le statut d'un fournisseur (Admin)",
-)
+@router.patch("/fournisseurs/{fournisseur_id}/statut", response_model=FournisseurResponse)
 async def statut_fournisseur_endpoint(
     fournisseur_id: uuid.UUID,
     data: FournisseurStatutUpdate,
@@ -666,22 +522,13 @@ async def statut_fournisseur_endpoint(
 ) -> FournisseurResponse:
     _require_admin(current_user)
     try:
-        fournisseur = await mettre_a_jour_statut_fournisseur(
-            fournisseur_id=fournisseur_id,
-            data=data,
-            db=db,
-        )
+        fournisseur = await mettre_a_jour_statut_fournisseur(fournisseur_id=fournisseur_id, data=data, db=db)
         return FournisseurResponse.model_validate(fournisseur)
     except FournisseurNotFoundError as e:
         _raise_semences_error(e)
 
-
-@router.patch(
-    "/fournisseurs/{fournisseur_id}/label",
-    response_model=FournisseurResponse,
-    summary="Attribuer ou retirer le Label Ivoire Semences (Admin)",
-)
-async def label_ivoire_endpoint(
+@router.patch("/fournisseurs/{fournisseur_id}/label-ivoire", response_model=FournisseurResponse)
+async def label_ivoire_fournisseur_endpoint(
     fournisseur_id: uuid.UUID,
     data: LabelIvoireUpdate,
     current_user: User = Depends(get_authenticated_user),
@@ -689,11 +536,7 @@ async def label_ivoire_endpoint(
 ) -> FournisseurResponse:
     _require_admin(current_user)
     try:
-        fournisseur = await mettre_a_jour_label_ivoire(
-            fournisseur_id=fournisseur_id,
-            data=data,
-            db=db,
-        )
+        fournisseur = await mettre_a_jour_label_ivoire(fournisseur_id=fournisseur_id, data=data, db=db)
         return FournisseurResponse.model_validate(fournisseur)
-    except (FournisseurNotFoundError, SemencesError) as e:
+    except FournisseurNotFoundError as e:
         _raise_semences_error(e)

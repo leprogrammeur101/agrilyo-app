@@ -1,13 +1,10 @@
 """
 Configuration centralisée AGRILYO — Pydantic Settings v2
-Toutes les variables d'environnement sont typées et validées au démarrage.
 """
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import PostgresDsn, field_validator
+from pydantic import field_validator
 from typing import List
-import secrets
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -20,15 +17,15 @@ class Settings(BaseSettings):
     # ── Application ────────────────────────────────────────────────────────────
     APP_NAME: str = "AGRILYO API"
     APP_VERSION: str = "0.1.0"
-    ENVIRONMENT: str = "development"  # development | staging | production
+    ENVIRONMENT: str = "development"
     DEBUG: bool = True
-    SECRET_KEY: str = secrets.token_urlsafe(32)
 
     # ── Base de données PostgreSQL ─────────────────────────────────────────────
-    DATABASE_URL: str  # postgresql+asyncpg://user:pass@host:5432/db
+    DATABASE_URL: str
 
     # ── Sécurité JWT ──────────────────────────────────────────────────────────
-    JWT_SECRET_KEY: str = secrets.token_urlsafe(64)
+    # ⚠️ OBLIGATOIRE via variable d'environnement — aucune valeur par défaut
+    JWT_SECRET_KEY: str
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -37,8 +34,8 @@ class Settings(BaseSettings):
     OTP_EXPIRE_MINUTES: int = 10
     OTP_LENGTH: int = 6
     OTP_MAX_ATTEMPTS: int = 3
-    # En développement : OTP fixe pour éviter de consommer du crédit SMS
-    OTP_DEV_BYPASS: bool = True
+    # 🔒 Désactivé par défaut — activer explicitement en dev uniquement
+    OTP_DEV_BYPASS: bool = False
     OTP_DEV_CODE: str = "123456"
 
     # ── Africa's Talking (SMS / OTP / USSD) ───────────────────────────────────
@@ -47,21 +44,21 @@ class Settings(BaseSettings):
     AT_SENDER_ID: str = "AGRILYO"
     AT_USSD_CODE: str = "*713#"
 
-    # ── CinetPay (paiement mobile money) ──────────────────────────────────────
+    # ── CinetPay ──────────────────────────────────────────────────────────────
     CINETPAY_API_KEY: str = ""
     CINETPAY_SITE_ID: str = ""
     CINETPAY_BASE_URL: str = "https://api-checkout.cinetpay.com/v2"
-    CINETPAY_NOTIFY_URL: str = ""  # webhook callback
+    CINETPAY_NOTIFY_URL: str = ""
 
-    # ── Firebase FCM (notifications push) ────────────────────────────────────
+    # ── Firebase FCM ─────────────────────────────────────────────────────────
     FIREBASE_CREDENTIALS_PATH: str = "firebase-credentials.json"
 
-    # ── Cloudflare R2 / AWS S3 (stockage fichiers) ────────────────────────────
+    # ── Cloudflare R2 / AWS S3 ────────────────────────────────────────────────
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
     R2_BUCKET_NAME: str = "agrilyo-files"
-    R2_ENDPOINT_URL: str = ""  # https://<account>.r2.cloudflarestorage.com
-    R2_PUBLIC_URL: str = ""    # URL publique CDN
+    R2_ENDPOINT_URL: str = ""
+    R2_PUBLIC_URL: str = ""
 
     # ── Redis (cache + Celery) ────────────────────────────────────────────────
     REDIS_URL: str = "redis://localhost:6379/0"
@@ -70,14 +67,14 @@ class Settings(BaseSettings):
 
     # ── CORS ──────────────────────────────────────────────────────────────────
     ALLOWED_ORIGINS: List[str] = [
-        "http://localhost:8081",   # Expo dev
-        "http://localhost:3000",   # Web local
-        "exp://localhost:8081",    # Expo Go
+        "http://localhost:8081",
+        "http://localhost:3000",
+        "exp://localhost:8081",
     ]
 
     # ── Rate Limiting ─────────────────────────────────────────────────────────
-    RATE_LIMIT_OTP_PER_HOUR: int = 5       # max OTP par téléphone/heure
-    RATE_LIMIT_API_PER_MINUTE: int = 60    # max requêtes par IP/minute
+    RATE_LIMIT_OTP_PER_HOUR: int = 5
+    RATE_LIMIT_API_PER_MINUTE: int = 60
 
     # ── Pagination ────────────────────────────────────────────────────────────
     DEFAULT_PAGE_SIZE: int = 20
@@ -105,9 +102,6 @@ class Settings(BaseSettings):
 
     @property
     def database_url_sync(self) -> str:
-        """URL synchrone pour Alembic (psycopg2)."""
         return self.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
 
-
-# Instance globale — importée partout dans l'app
 settings = Settings()

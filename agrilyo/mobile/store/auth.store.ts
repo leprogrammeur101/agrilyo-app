@@ -44,7 +44,12 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
       set({ user, isAuthenticated: true, isInitialized: true });
     } catch {
       // Token invalide ou refresh impossible → déconnexion propre
-      await tokenStorage.clear();
+      try {
+        if (tokenStorage?.clear){
+          await tokenStorage.clear();}
+      } catch {
+        // ignore
+      }
       set({ user: null, isAuthenticated: false, isInitialized: true });
     }
   },

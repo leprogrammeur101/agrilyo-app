@@ -440,6 +440,7 @@ async def creer_fournisseur(
         statut=StatutFournisseur.EN_ATTENTE,
     )
     db.add(fournisseur)
+    await db.commit()
     await db.flush()
     await db.refresh(fournisseur)
     return fournisseur
@@ -533,6 +534,9 @@ async def modifier_fournisseur(
     update_data = data.model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(fournisseur, field, value)
+    await db.commit()  # ✅
+    await db.refresh(fournisseur)  # ✅
+
     return fournisseur
 
 
@@ -554,7 +558,8 @@ async def mettre_a_jour_statut_fournisseur(
         fournisseur.label_ivoire = None
         fournisseur.label_attribue_le = None
         fournisseur.label_expire_le = None
-
+    await db.commit()  # ✅
+    await db.refresh(fournisseur)  # ✅
     return fournisseur
 
 
@@ -614,6 +619,8 @@ async def mettre_a_jour_label_ivoire(
     if data.label_ivoire is None:
         fournisseur.label_expire_le = None
 
+    await db.commit()
+    await db.refresh(fournisseur)
     return fournisseur
 
 
@@ -651,6 +658,7 @@ async def creer_produit(
     )
     db.add(produit)
     await db.flush()
+    await db.commit()
     await recalculer_stats_fournisseur(fournisseur.id, db)
     await db.refresh(produit)
     return produit
@@ -774,6 +782,8 @@ async def modifier_produit(
         produit.statut = _statut_produit_selon_stock(produit)
 
     await recalculer_stats_fournisseur(produit.fournisseur_id, db)
+    await db.commit()
+    await db.refresh(produit)
     return produit
 
 
@@ -881,6 +891,7 @@ async def ajouter_certification(
         est_verifie=False,
     )
     db.add(certification)
+    await db.commit()
     await db.flush()
     await db.refresh(certification)
     return certification
@@ -929,6 +940,8 @@ async def ajouter_avis(
     await db.flush()
     await recalculer_stats_produit(produit_id, db)
     await recalculer_stats_fournisseur(produit.fournisseur_id, db)
+    await db.commit()
+    await db.refresh(avis)
 
     result = await db.execute(
         select(AvisProduit)
@@ -1095,6 +1108,7 @@ async def creer_commande(
     )
     db.add(commande)
     _lignes_depuis_produits(commande, lignes)
+    await db.commit()  # ✅
     await db.flush()
     await db.refresh(commande, attribute_names=["lignes"])
     await notifier_commande_confirmee(commande=commande, acheteur=user)
@@ -1128,6 +1142,8 @@ async def creer_commande_depuis_panier(
         db=db,
     )
     await vider_panier(user=user, db=db)
+    await db.commit()  # ✅
+    await db.refresh(commande)
     return commande
 
 
@@ -1207,4 +1223,6 @@ async def mettre_a_jour_statut_commande(
 
     await db.flush()
     await notifier_statut_commande(commande=commande, acheteur=commande.acheteur)
+    await db.commit()
+    await db.refresh(commande)
     return _commande_detail(commande)

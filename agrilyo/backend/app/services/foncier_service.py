@@ -1,6 +1,5 @@
 """
-Service Foncier AGRILYO — Logique métier M1
-Toutes les opérations sur les annonces foncières passent par ce service.
+Service Foncier AGRILYO — Logique métier M1 (corrigé)
 """
 
 import uuid
@@ -27,31 +26,17 @@ from app.schemas.foncier import (
     BadgeUpdate,
 )
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Exceptions
-# ═══════════════════════════════════════════════════════════════════════════════
-
 class AnnonceNotFoundError(Exception):
     pass
 
 class AnnonceAccessDeniedError(Exception):
     pass
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CRUD Annonces
-# ═══════════════════════════════════════════════════════════════════════════════
-
 async def creer_annonce(
     data: AnnonceCreate,
     bailleur: User,
     db: AsyncSession,
 ) -> AnnonceFonciere:
-    """
-    Crée une nouvelle annonce foncière.
-    Statut initial : EN_ATTENTE (visible après validation admin).
-    """
     annonce = AnnonceFonciere(
         bailleur_id=bailleur.id,
         type_acces=data.type_acces,
@@ -70,19 +55,14 @@ async def creer_annonce(
         badge=BadgeSecurite.NON_VERIFIE,
     )
     db.add(annonce)
-    await db.flush()   # génère l'UUID sans committer
+    await db.commit()  # ✅
     await db.refresh(annonce)
     return annonce
-
 
 async def get_annonce_by_id(
     annonce_id: uuid.UUID,
     db: AsyncSession,
 ) -> AnnonceFonciere:
-    """
-    Récupère une annonce avec ses relations (bailleur + documents).
-    Lève AnnonceNotFoundError si introuvable.
-    """
     result = await db.execute(
         select(AnnonceFonciere)
         .options(
@@ -96,20 +76,16 @@ async def get_annonce_by_id(
     if not annonce:
         raise AnnonceNotFoundError(f"Annonce {annonce_id} introuvable")
 
-    # Incrémenter le compteur de vues
     annonce.vues += 1
+    await db.commit()  # ✅ Persiste l'incrémentation des vues
     return annonce
-
 
 async def lister_annonces(
     filtres: AnnonceFiltres,
     db: AsyncSession,
     statuts_visibles: List[StatutAnnonce] | None = None,
+    bailleur_id: uuid.UUID | None = None,  # ✅ Nouveau paramètre
 ) -> AnnonceListResponse:
-    """
-    Liste paginée des annonces avec filtres.
-    Par défaut, retourne uniquement les annonces ACTIVES.
-    """
     if statuts_visibles is None:
         statuts_visibles = [StatutAnnonce.ACTIVE]
 
@@ -123,11 +99,12 @@ async def lister_annonces(
         .order_by(AnnonceFonciere.created_at.desc())
     )
 
-    # ── Application des filtres ────────────────────────────────────────────────
+    # ✅ Filtre par bailleur si fourni
+    if bailleur_id is not None:
+        query = query.where(AnnonceFonciere.bailleur_id == bailleur_id)
+
     if filtres.region:
-        query = query.where(
-            AnnonceFonciere.region.ilike(f"%{filtres.region}%")
-        )
+        query = query.where(AnnonceFonciere.region.ilike(f"%{filtres.region}%"))
     if filtres.type_acces:
         query = query.where(AnnonceFonciere.type_acces == filtres.type_acces)
     if filtres.badge:
@@ -140,26 +117,22 @@ async def lister_annonces(
         query = query.where(AnnonceFonciere.superficie_ha <= filtres.superficie_max)
     if filtres.prix_max is not None:
         query = query.where(
-            (AnnonceFonciere.prix_indicatif == None) |
-            (AnnonceFonciere.prix_indicatif <= filtres.prix_max)
+            (AnnonceFonciere.prix_indicatif == None)
+            | (AnnonceFonciere.prix_indicatif <= filtres.prix_max)
         )
 
-    # ── Comptage total ────────────────────────────────────────────────────────
     count_query = select(func.count()).select_from(query.subquery())
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
 
-    # ── Pagination ────────────────────────────────────────────────────────────
     offset = (filtres.page - 1) * filtres.size
     query = query.offset(offset).limit(filtres.size)
 
     result = await db.execute(query)
     annonces = result.scalars().all()
 
-    # ── Construction des résumés ──────────────────────────────────────────────
     items = []
     for a in annonces:
-        # Photo principale = première photo publique
         photo_url = next(
             (d.url_stockage for d in a.documents
              if d.type_document == "PHOTO" and d.est_public),
@@ -181,7 +154,7 @@ async def lister_annonces(
         )
         items.append(resume)
 
-    pages = max(1, -(-total // filtres.size))  # division arrondie au supérieur
+    pages = max(1, -(-total // filtres.size))
 
     return AnnonceListResponse(
         items=items,
@@ -191,17 +164,12 @@ async def lister_annonces(
         pages=pages,
     )
 
-
 async def modifier_annonce(
     annonce_id: uuid.UUID,
     data: AnnonceUpdate,
     user: User,
     db: AsyncSession,
 ) -> AnnonceFonciere:
-    """
-    Modifie une annonce existante.
-    Seul le bailleur propriétaire peut modifier.
-    """
     result = await db.execute(
         select(AnnonceFonciere).where(AnnonceFonciere.id == annonce_id)
     )
@@ -211,24 +179,19 @@ async def modifier_annonce(
     if annonce.bailleur_id != user.id:
         raise AnnonceAccessDeniedError("Seul le bailleur peut modifier cette annonce")
 
-    # Mise à jour uniquement des champs fournis (PATCH partiel)
     update_data = data.model_dump(exclude_none=True)
     for field, value in update_data.items():
         setattr(annonce, field, value)
 
+    await db.commit()  # ✅
+    await db.refresh(annonce)
     return annonce
-
 
 async def mettre_a_jour_badge(
     annonce_id: uuid.UUID,
     data: BadgeUpdate,
     db: AsyncSession,
 ) -> AnnonceFonciere:
-    """
-    Met à jour le badge sécurité d'une annonce.
-    Réservé aux admins — la vérification du rôle est faite dans l'endpoint.
-    Active automatiquement l'annonce quand un badge est attribué.
-    """
     result = await db.execute(
         select(AnnonceFonciere)
         .options(
@@ -244,12 +207,12 @@ async def mettre_a_jour_badge(
     annonce.badge = data.badge
     annonce.badge_note = data.note
 
-    # Activer l'annonce automatiquement dès qu'un badge est attribué
     if data.badge != BadgeSecurite.NON_VERIFIE:
         annonce.statut = StatutAnnonce.ACTIVE
 
+    await db.commit()  # ✅
+    await db.refresh(annonce)
     return annonce
-
 
 async def ajouter_document(
     annonce_id: uuid.UUID,
@@ -261,10 +224,6 @@ async def ajouter_document(
     user: User,
     db: AsyncSession,
 ) -> DocumentFoncier:
-    """
-    Attache un document ou une photo à une annonce.
-    Vérifie que l'utilisateur est bien le bailleur.
-    """
     result = await db.execute(
         select(AnnonceFonciere).where(AnnonceFonciere.id == annonce_id)
     )
@@ -283,10 +242,9 @@ async def ajouter_document(
         est_public=est_public,
     )
     db.add(document)
-    await db.flush()
+    await db.commit()  # ✅
     await db.refresh(document)
     return document
-
 
 async def mes_annonces(
     user: User,
@@ -295,11 +253,12 @@ async def mes_annonces(
     size: int = 20,
 ) -> AnnonceListResponse:
     """
-    Retourne toutes les annonces du bailleur connecté (tous statuts).
+    ✅ CORRIGÉ : retourne uniquement les annonces du bailleur connecté.
     """
     filtres = AnnonceFiltres(page=page, size=size)
     return await lister_annonces(
         filtres=filtres,
         db=db,
         statuts_visibles=list(StatutAnnonce),
+        bailleur_id=user.id,  # ✅ Filtre appliqué
     )

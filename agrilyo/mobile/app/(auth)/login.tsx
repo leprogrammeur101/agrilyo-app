@@ -55,10 +55,15 @@ export default function LoginScreen() {
         });
       }
     } catch (err) {
-      Alert.alert("Erreur", getApiErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+        console.log("LOGIN ERROR:", err);
+        const message =
+          typeof getApiErrorMessage === "function"
+            ? getApiErrorMessage(err)
+            : "Impossible d'envoyer le code. Vérifiez votre connexion.";
+        Alert.alert("Erreur", message);
+      } finally {
+        setLoading(false);
+      }
   };
 
   return (
