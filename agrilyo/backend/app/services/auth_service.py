@@ -156,9 +156,12 @@ async def send_otp(phone_number: str, db: AsyncSession) -> SendOTPResponse:
         ),
     )
 
-    if settings.is_development and settings.OTP_DEV_BYPASS:
-        response.debug_code = otp_code
-        logger.debug(f"[DEV] OTP pour {phone_number} : {otp_code}")
+    if settings.is_development:
+        # Toujours affiché dans le terminal en dev, que le code parte par SMS ou non
+        logger.info(f"🔑 [DEV] Code OTP pour {phone_number} : {otp_code}")
+        if settings.OTP_DEV_BYPASS:
+            # En plus, renvoyé dans la réponse API pour pré-remplissage auto côté mobile
+            response.debug_code = otp_code
 
     return response
 
@@ -236,6 +239,54 @@ async def verify_otp(
         tokens=_token_pair_schema(access_token, refresh_token),
         user=UserPublicSchema.model_validate(user),
         is_new_user=is_new_user,
+        requires_password_setup=user.password_hash is None,
+    )
+
+
+async def set_password(user: User, password: str, db: AsyncSession) -> None:
+    """
+    Définit (ou remplace) le mot de passe de l'utilisateur.
+    Appelé juste après la première vérification OTP réussie (endpoint protégé).
+    """
+    user.password_hash = hash_value(password)
+    await db.commit()
+    logger.info(f"Mot de passe défini : {user.phone_number}")
+
+
+async def login_with_password(phone_number: str, password: str, db: AsyncSession) -> AuthResponse:
+    """
+    Connexion par numéro + mot de passe — flow utilisé une fois le mot de passe créé,
+    plus besoin de repasser par l'OTP.
+    """
+    user = await _get_user_by_phone(phone_number, db)
+
+    # Message volontairement générique (numéro OU mot de passe) — évite d'indiquer
+    # à un attaquant si le numéro existe en base.
+    generic_error = AuthError("Numéro ou mot de passe incorrect.", status_code=400)
+
+    if not user or not user.password_hash:
+        raise generic_error
+
+    if user.status in (UserStatus.SUSPENDED, UserStatus.BANNED):
+        raise AccountSuspendedError()
+
+    if not verify_hash(password, user.password_hash):
+        raise generic_error
+
+    access_token, refresh_token = _build_token_pair(user.id)
+    user.refresh_token_hash = hash_value(refresh_token)
+    user.last_login_at = datetime.now(timezone.utc)
+
+    await db.commit()
+    await db.refresh(user)
+
+    logger.info(f"Connexion par mot de passe réussie : {phone_number}")
+
+    return AuthResponse(
+        tokens=_token_pair_schema(access_token, refresh_token),
+        user=UserPublicSchema.model_validate(user),
+        is_new_user=False,
+        requires_password_setup=False,
     )
 
 async def refresh_tokens(refresh_token: str, db: AsyncSession) -> TokenPairSchema:

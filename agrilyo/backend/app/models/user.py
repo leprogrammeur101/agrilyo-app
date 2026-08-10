@@ -97,6 +97,11 @@ class User(Base):
     # ── Token de refresh (révocation possible) ────────────────────────────────
     refresh_token_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    # ── Mot de passe (optionnel — défini après la première vérification OTP) ──
+    # NULL tant que l'utilisateur ne l'a pas encore créé (flow : OTP puis mot de passe).
+    # Une fois défini, les connexions suivantes se font par numéro + mot de passe.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     # ── Langue préférée ───────────────────────────────────────────────────────
     language: Mapped[str] = mapped_column(
         String(5),

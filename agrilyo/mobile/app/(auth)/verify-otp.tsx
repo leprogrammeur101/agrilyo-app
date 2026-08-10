@@ -55,6 +55,11 @@ export default function VerifyOTPScreen() {
         code,
       });
       await setAuth(response.user, response.tokens);
+      if (response.requires_password_setup) {
+        router.replace("/(auth)/create-password");
+      } else {
+        router.replace("/(tabs)");
+      }
     } catch (err) {
       Alert.alert("Code incorrect", getApiErrorMessage(err));
       setOtp("");

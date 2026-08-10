@@ -23,12 +23,16 @@ from app.schemas.conseil import (
     DemandeConseilResponse,
     DemandeConseilStatutUpdate,
     MatchingSuggestion,
+    OperationPlanningCreate,
+    OperationPlanningResponse,
+    OperationPlanningUpdate,
     PlanningCulturalCreate,
     PlanningCulturalListResponse,
     PlanningCulturalResponse,
     PlanningCulturalUpdate,
     SessionConseilCreate,
     SessionConseilResponse,
+    SessionConseilTerminer,
     SessionConseilUpdate,
 )
 from app.services.matching_service import (
@@ -36,22 +40,29 @@ from app.services.matching_service import (
     assigner_demande_conseil,
     creer_agronome,
     creer_demande_conseil,
+    creer_operation_planning,
     creer_planning_cultural,
     creer_session_conseil,
+    demarrer_session_conseil,
     get_agronome,
     get_demande_conseil,
     get_mon_profil_agronome,
     get_planning,
+    get_session_conseil,
     lister_agronomes,
     lister_mes_demandes_conseil,
     lister_mes_plannings,
     mettre_a_jour_statut_agronome,
     mettre_a_jour_statut_demande,
     modifier_mon_profil_agronome,
+    modifier_operation_planning,
     modifier_planning,
     modifier_session_conseil,
     suggerer_agronomes,
+    supprimer_operation_planning,
+    terminer_session_conseil,
 )
+from app.services.rappel_service import envoyer_rappels_operations
 
 router = APIRouter()
 
@@ -304,6 +315,22 @@ async def creer_session_endpoint(
         _raise_conseil_error(e)
 
 
+@router.get(
+    "/sessions/{session_id}",
+    response_model=SessionConseilResponse,
+    summary="Detail d'une session de conseil",
+)
+async def get_session_endpoint(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> SessionConseilResponse:
+    try:
+        return await get_session_conseil(session_id=session_id, user=current_user, db=db)
+    except ConseilError as e:
+        _raise_conseil_error(e)
+
+
 @router.patch(
     "/sessions/{session_id}",
     response_model=SessionConseilResponse,
@@ -321,6 +348,41 @@ async def modifier_session_endpoint(
             data=data,
             user=current_user,
             db=db,
+        )
+    except ConseilError as e:
+        _raise_conseil_error(e)
+
+
+@router.post(
+    "/sessions/{session_id}/demarrer",
+    response_model=SessionConseilResponse,
+    summary="Demarrer une session planifiee (heure fixee par le serveur)",
+)
+async def demarrer_session_endpoint(
+    session_id: uuid.UUID,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> SessionConseilResponse:
+    try:
+        return await demarrer_session_conseil(session_id=session_id, user=current_user, db=db)
+    except ConseilError as e:
+        _raise_conseil_error(e)
+
+
+@router.post(
+    "/sessions/{session_id}/terminer",
+    response_model=SessionConseilResponse,
+    summary="Terminer une session en cours (compte-rendu obligatoire)",
+)
+async def terminer_session_endpoint(
+    session_id: uuid.UUID,
+    data: SessionConseilTerminer,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> SessionConseilResponse:
+    try:
+        return await terminer_session_conseil(
+            session_id=session_id, data=data, user=current_user, db=db
         )
     except ConseilError as e:
         _raise_conseil_error(e)
@@ -393,3 +455,74 @@ async def modifier_planning_endpoint(
         )
     except ConseilError as e:
         _raise_conseil_error(e)
+
+
+@router.post(
+    "/plannings/{planning_id}/operations",
+    response_model=OperationPlanningResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Ajouter une operation a un planning cultural",
+)
+async def creer_operation_endpoint(
+    planning_id: uuid.UUID,
+    data: OperationPlanningCreate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> OperationPlanningResponse:
+    try:
+        return await creer_operation_planning(
+            planning_id=planning_id, data=data, user=current_user, db=db
+        )
+    except ConseilError as e:
+        _raise_conseil_error(e)
+
+
+@router.patch(
+    "/operations/{operation_id}",
+    response_model=OperationPlanningResponse,
+    summary="Modifier une operation de planning (statut, date realisee...)",
+)
+async def modifier_operation_endpoint(
+    operation_id: uuid.UUID,
+    data: OperationPlanningUpdate,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> OperationPlanningResponse:
+    try:
+        return await modifier_operation_planning(
+            operation_id=operation_id, data=data, user=current_user, db=db
+        )
+    except ConseilError as e:
+        _raise_conseil_error(e)
+
+
+@router.delete(
+    "/operations/{operation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Supprimer une operation de planning",
+)
+async def supprimer_operation_endpoint(
+    operation_id: uuid.UUID,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    try:
+        await supprimer_operation_planning(operation_id=operation_id, user=current_user, db=db)
+    except ConseilError as e:
+        _raise_conseil_error(e)
+
+
+@router.post(
+    "/rappels/executer",
+    summary="[Admin] Declencher l'envoi des rappels d'operations prevues demain",
+    description=(
+        "Reservee aux administrateurs — destinee a etre appelee par un cron externe "
+        "ou manuellement en attendant le branchement d'un scheduler (Celery beat)."
+    ),
+)
+async def executer_rappels_endpoint(
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    _require_admin(current_user)
+    return await envoyer_rappels_operations(db=db)

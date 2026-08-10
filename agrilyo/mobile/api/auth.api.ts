@@ -46,6 +46,16 @@ export interface AuthResponse {
   tokens: TokenPair;
   user: UserProfile;
   is_new_user: boolean;
+  requires_password_setup: boolean;
+}
+
+export interface SetPasswordPayload {
+  password: string;
+}
+
+export interface PasswordLoginPayload {
+  phone_number: string;
+  password: string;
 }
 
 // ── Appels API ────────────────────────────────────────────────────────────────
@@ -78,6 +88,26 @@ export const authApi = {
     const { data } = await apiClient.post<TokenPair>("/auth/refresh", {
       refresh_token: refreshToken,
     });
+    return data;
+  },
+
+  /**
+   * Crée le mot de passe (une seule fois, juste après la 1ère vérification OTP).
+   * Nécessite d'être authentifié (token obtenu via verifyOTP).
+   */
+  setPassword: async (payload: SetPasswordPayload) => {
+    const { data } = await apiClient.post<{ success: boolean; message: string }>(
+      "/auth/set-password",
+      payload
+    );
+    return data;
+  },
+
+  /**
+   * Connexion par numéro + mot de passe (une fois le mot de passe créé).
+   */
+  loginWithPassword: async (payload: PasswordLoginPayload): Promise<AuthResponse> => {
+    const { data } = await apiClient.post<AuthResponse>("/auth/login-password", payload);
     return data;
   },
 

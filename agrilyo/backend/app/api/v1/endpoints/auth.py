@@ -17,9 +17,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.schemas.auth import (
     AuthResponse,
+    PasswordLoginRequest,
     RefreshTokenRequest,
     SendOTPRequest,
     SendOTPResponse,
+    SetPasswordRequest,
+    SetPasswordResponse,
     TokenPairSchema,
     UserPublicSchema,
 )
@@ -27,9 +30,11 @@ from app.services.auth_service import (
     AccountSuspendedError,
     AuthError,
     get_current_user,
+    login_with_password,
     logout,
     refresh_tokens,
     send_otp,
+    set_password,
     verify_otp,
 )
 from app.schemas.auth import VerifyOTPRequest
@@ -141,9 +146,49 @@ async def refresh_endpoint(
         raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
+@router.post(
+    "/login-password",
+    response_model=AuthResponse,
+    summary="Connexion par numéro + mot de passe",
+    description=(
+        "Utilisé une fois que l'utilisateur a défini son mot de passe "
+        "(voir /auth/set-password). Remplace l'OTP pour les connexions suivantes."
+    ),
+)
+async def login_password_endpoint(
+    body: PasswordLoginRequest,
+    db: AsyncSession = Depends(get_db),
+) -> AuthResponse:
+    try:
+        return await login_with_password(
+            phone_number=body.phone_number, password=body.password, db=db
+        )
+    except AuthError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Routes protégées (Bearer token requis)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/set-password",
+    response_model=SetPasswordResponse,
+    summary="Créer son mot de passe",
+    description=(
+        "Étape 3, une seule fois, juste après la première vérification OTP "
+        "(`requires_password_setup=true` dans la réponse de /verify-otp). "
+        "Nécessite le token obtenu via /verify-otp."
+    ),
+)
+async def set_password_endpoint(
+    body: SetPasswordRequest,
+    current_user=Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> SetPasswordResponse:
+    await set_password(user=current_user, password=body.password, db=db)
+    return SetPasswordResponse(success=True, message="Mot de passe créé avec succès.")
+
 
 @router.post(
     "/logout",

@@ -7,32 +7,19 @@ import re
 from datetime import datetime
 from typing import List
 from uuid import UUID
-
+from app.utils.phone import normalize_ci_phone
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 # ── Validators réutilisables ───────────────────────────────────────────────────
 
-CI_PHONE_PATTERN = re.compile(r"^\+225\d{10}$")
-
 
 def validate_ci_phone(v: str) -> str:
     """Valide un numéro de téléphone ivoirien au format E.164 (+225XXXXXXXXXX)."""
-    v = v.strip().replace(" ", "").replace("-", "")
-    if not v.startswith("+"):
-        # Normalisation automatique : 0700000000 → +2250700000000
-        if v.startswith("225"):
-            v = "+" + v
-        elif len(v) == 10:
-            v = "+225" + v
-        else:
-            raise ValueError("Format invalide. Exemple : +2250700000000")
-
-    if not CI_PHONE_PATTERN.match(v):
-        raise ValueError(
-            "Numéro ivoirien invalide. Format attendu : +2250700000000 (10 chiffres après +225)"
-        )
-    return v
+    try:
+        return normalize_ci_phone(v)
+    except ValueError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -77,6 +64,29 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 
+class SetPasswordRequest(BaseModel):
+    """Définition du mot de passe — appelé une fois, juste après la 1ère vérification OTP."""
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        if len(v) < 6:
+            raise ValueError("Le mot de passe doit contenir au moins 6 caractères.")
+        return v
+
+
+class PasswordLoginRequest(BaseModel):
+    """Connexion par numéro + mot de passe (utilisée après la 1ère création de mot de passe)."""
+    phone_number: str
+    password: str
+
+    @field_validator("phone_number")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        return validate_ci_phone(v)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Réponses (outputs)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -117,7 +127,14 @@ class TokenPairSchema(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    """Réponse complète après vérification OTP réussie."""
+    """Réponse complète après vérification OTP ou connexion par mot de passe réussie."""
     tokens: TokenPairSchema
     user: UserPublicSchema
     is_new_user: bool  # True si premier login — le front affiche l'onboarding
+    requires_password_setup: bool = False  # True → le front doit rediriger vers l'écran de création de mot de passe
+
+
+class SetPasswordResponse(BaseModel):
+    """Confirmation de création du mot de passe."""
+    success: bool
+    message: str

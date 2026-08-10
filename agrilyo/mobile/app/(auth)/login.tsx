@@ -19,12 +19,17 @@ import {
 import { router } from "expo-router";
 import { authApi } from "../../api/auth.api";
 import { getApiErrorMessage } from "../../api/client";
+import { useAuthStore } from "../../store/auth.store";
 import { Colors } from "../../constants/colors";
 import { FontFamily, FontSize, Spacing, BorderRadius } from "../../constants/theme";
 
 export default function LoginScreen() {
   const [phone, setPhone] = useState("");
+  const [password, setPassword] = useState("");
+  const [mode, setMode] = useState<"otp" | "password">("otp");
   const [loading, setLoading] = useState(false);
+
+  const { setAuth } = useAuthStore();
 
   // Normalise la saisie : ajoute +225 si absent
   const normalizePhone = (input: string): string => {
@@ -66,6 +71,32 @@ export default function LoginScreen() {
       }
   };
 
+  const handlePasswordLogin = async () => {
+    const normalized = normalizePhone(phone);
+    if (normalized.length < 14) {
+      Alert.alert("Numéro invalide", "Entrez votre numéro ivoirien (ex : 07 00 00 00 00)");
+      return;
+    }
+    if (!password) {
+      Alert.alert("Mot de passe requis", "Entrez votre mot de passe.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await authApi.loginWithPassword({
+        phone_number: normalized,
+        password,
+      });
+      await setAuth(response.user, response.tokens);
+      router.replace("/(tabs)");
+    } catch (err) {
+      Alert.alert("Erreur", getApiErrorMessage(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -85,9 +116,30 @@ export default function LoginScreen() {
         <View style={styles.form}>
           <Text style={styles.title}>Connexion</Text>
           <Text style={styles.subtitle}>
-            Entrez votre numéro de téléphone ivoirien.{"\n"}
-            Nous vous enverrons un code de vérification.
+            {mode === "otp"
+              ? "Entrez votre numéro de téléphone ivoirien.\nNous vous enverrons un code de vérification."
+              : "Entrez votre numéro et votre mot de passe."}
           </Text>
+
+          {/* Toggle SMS / Mot de passe */}
+          <View style={styles.modeToggle}>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === "otp" && styles.modeBtnActive]}
+              onPress={() => setMode("otp")}
+            >
+              <Text style={[styles.modeBtnText, mode === "otp" && styles.modeBtnTextActive]}>
+                Code SMS
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modeBtn, mode === "password" && styles.modeBtnActive]}
+              onPress={() => setMode("password")}
+            >
+              <Text style={[styles.modeBtnText, mode === "password" && styles.modeBtnTextActive]}>
+                Mot de passe
+              </Text>
+            </TouchableOpacity>
+          </View>
 
           {/* Champ téléphone */}
           <View style={styles.inputWrapper}>
@@ -106,16 +158,30 @@ export default function LoginScreen() {
             />
           </View>
 
+          {/* Champ mot de passe (mode password uniquement) */}
+          {mode === "password" && (
+            <TextInput
+              style={styles.passwordInput}
+              placeholder="Mot de passe"
+              placeholderTextColor={Colors.textDesactive}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+            />
+          )}
+
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleSendOTP}
+            onPress={mode === "otp" ? handleSendOTP : handlePasswordLogin}
             disabled={loading}
             activeOpacity={0.85}
           >
             {loading ? (
               <ActivityIndicator color={Colors.blanc} />
             ) : (
-              <Text style={styles.buttonText}>Recevoir mon code</Text>
+              <Text style={styles.buttonText}>
+                {mode === "otp" ? "Recevoir mon code" : "Se connecter"}
+              </Text>
             )}
           </TouchableOpacity>
 
@@ -184,6 +250,42 @@ const styles = StyleSheet.create({
     borderColor: Colors.grisMoyen,
     marginBottom: Spacing.md,
     overflow: "hidden",
+  },
+  modeToggle: {
+    flexDirection: "row",
+    backgroundColor: Colors.vertForetAlpha,
+    borderRadius: BorderRadius.md,
+    padding: 4,
+    marginBottom: Spacing.md,
+  },
+  modeBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: "center",
+    borderRadius: BorderRadius.md - 2,
+  },
+  modeBtnActive: {
+    backgroundColor: Colors.vertForet,
+  },
+  modeBtnText: {
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.sm,
+    color: Colors.vertForet,
+  },
+  modeBtnTextActive: {
+    color: Colors.blanc,
+  },
+  passwordInput: {
+    backgroundColor: Colors.blanc,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1.5,
+    borderColor: Colors.grisMoyen,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 16,
+    fontFamily: FontFamily.bodyMedium,
+    fontSize: FontSize.md,
+    color: Colors.textPrincipal,
+    marginBottom: Spacing.md,
   },
   prefixBox: {
     backgroundColor: Colors.vertForetAlpha,

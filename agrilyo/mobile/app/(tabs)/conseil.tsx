@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AgronomeCard from "../../components/common/AgronomeCard";
 import { useConseilStore } from "../../store/conseil.store";
@@ -56,7 +57,11 @@ export default function ConseilScreen() {
   const ListHeader = () => (
     <View>
       <View style={styles.actionsRow}>
-        <TouchableOpacity style={styles.primaryButton} activeOpacity={0.86}>
+        <TouchableOpacity
+          style={styles.primaryButton}
+          activeOpacity={0.86}
+          onPress={() => router.push("/conseil/demande/creer")}
+        >
           <Ionicons name="chatbubbles-outline" size={18} color={Colors.blanc} />
           <Text style={styles.primaryButtonText}>Demander conseil</Text>
         </TouchableOpacity>
@@ -124,7 +129,14 @@ export default function ConseilScreen() {
       <FlatList
         data={agronomes}
         keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <AgronomeCard agronome={item} />}
+        renderItem={({ item }) => (
+          <AgronomeCard
+            agronome={item}
+            onPress={() =>
+              router.push({ pathname: "/conseil/agronome/[id]", params: { id: item.id } })
+            }
+          />
+        )}
         contentContainerStyle={styles.list}
         ListHeaderComponent={ListHeader}
         ListEmptyComponent={() =>

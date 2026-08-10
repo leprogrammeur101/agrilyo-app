@@ -175,6 +175,10 @@ class SessionConseilUpdate(BaseModel):
     notes_agronome: str | None = Field(default=None, max_length=4000)
     compte_rendu: str | None = Field(default=None, max_length=4000)
 
+class SessionConseilTerminer(BaseModel):
+    """Cloture une session — compte-rendu obligatoire, timestamps geres par le serveur."""
+    compte_rendu: str = Field(min_length=5, max_length=4000)
+    notes_agronome: str | None = Field(default=None, max_length=4000)
 
 class SessionConseilResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

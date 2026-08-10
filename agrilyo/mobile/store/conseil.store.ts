@@ -1,6 +1,6 @@
 /**
  * Zustand Store Conseil - AGRILYO M3
- * Agronomes, demandes de conseil, matching et plannings.
+ * Agronomes, demandes de conseil, matching, sessions, plannings et opérations.
  */
 
 import { create } from "zustand";
@@ -13,7 +13,12 @@ import {
   DemandeConseilDetail,
   DemandeConseilResume,
   MatchingSuggestion,
+  OperationPlanningCreatePayload,
+  OperationPlanningUpdatePayload,
   PlanningCultural,
+  SessionConseil,
+  SessionConseilCreatePayload,
+  SessionConseilTerminerPayload,
   conseilApi,
 } from "../api/conseil.api";
 
@@ -34,10 +39,17 @@ interface ConseilState {
   isLoadingDemandes: boolean;
   isSubmittingDemande: boolean;
   isLoadingMatching: boolean;
+  isAssigning: boolean;
+
+  sessionSelectionnee: SessionConseil | null;
+  isCreatingSession: boolean;
+  isLoadingSession: boolean;
+  isUpdatingSession: boolean;
 
   plannings: PlanningCultural[];
   planningSelectionne: PlanningCultural | null;
   isLoadingPlannings: boolean;
+  isSavingOperation: boolean;
 
   error: string | null;
 
@@ -53,9 +65,33 @@ interface ConseilState {
   chargerDemandes: () => Promise<void>;
   chargerDemande: (id: string) => Promise<void>;
   chargerMatching: (demandeId: string) => Promise<void>;
+  assignerAgronome: (
+    demandeId: string,
+    agronomeId: string,
+    scoreMatching?: number
+  ) => Promise<boolean>;
+
+  creerSession: (payload: SessionConseilCreatePayload) => Promise<SessionConseil | null>;
+  chargerSession: (sessionId: string) => Promise<void>;
+  demarrerSession: (sessionId: string) => Promise<void>;
+  terminerSession: (
+    sessionId: string,
+    payload: SessionConseilTerminerPayload
+  ) => Promise<void>;
+  clearSession: () => void;
 
   chargerPlannings: () => Promise<void>;
   chargerPlanning: (id: string) => Promise<void>;
+  ajouterOperation: (
+    planningId: string,
+    payload: OperationPlanningCreatePayload
+  ) => Promise<boolean>;
+  modifierOperation: (
+    operationId: string,
+    payload: OperationPlanningUpdatePayload
+  ) => Promise<boolean>;
+  supprimerOperation: (operationId: string) => Promise<boolean>;
+
   clearError: () => void;
 }
 
@@ -81,10 +117,17 @@ export const useConseilStore = create<ConseilState>()((set, get) => ({
   isLoadingDemandes: false,
   isSubmittingDemande: false,
   isLoadingMatching: false,
+  isAssigning: false,
+
+  sessionSelectionnee: null,
+  isCreatingSession: false,
+  isLoadingSession: false,
+  isUpdatingSession: false,
 
   plannings: [],
   planningSelectionne: null,
   isLoadingPlannings: false,
+  isSavingOperation: false,
 
   error: null,
 
@@ -199,6 +242,63 @@ export const useConseilStore = create<ConseilState>()((set, get) => ({
     }
   },
 
+  assignerAgronome: async (demandeId, agronomeId, scoreMatching) => {
+    set({ isAssigning: true, error: null });
+    try {
+      const demande = await conseilApi.assignerAgronome(demandeId, agronomeId, scoreMatching);
+      set({ demandeSelectionnee: demande, isAssigning: false });
+      await get().chargerDemandes();
+      return true;
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isAssigning: false });
+      return false;
+    }
+  },
+
+  creerSession: async (payload) => {
+    set({ isCreatingSession: true, error: null });
+    try {
+      const session = await conseilApi.creerSession(payload);
+      set({ sessionSelectionnee: session, isCreatingSession: false });
+      return session;
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isCreatingSession: false });
+      return null;
+    }
+  },
+
+  chargerSession: async (sessionId) => {
+    set({ isLoadingSession: true, error: null });
+    try {
+      const session = await conseilApi.getSession(sessionId);
+      set({ sessionSelectionnee: session, isLoadingSession: false });
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isLoadingSession: false });
+    }
+  },
+
+  demarrerSession: async (sessionId) => {
+    set({ isUpdatingSession: true, error: null });
+    try {
+      const session = await conseilApi.demarrerSession(sessionId);
+      set({ sessionSelectionnee: session, isUpdatingSession: false });
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isUpdatingSession: false });
+    }
+  },
+
+  terminerSession: async (sessionId, payload) => {
+    set({ isUpdatingSession: true, error: null });
+    try {
+      const session = await conseilApi.terminerSession(sessionId, payload);
+      set({ sessionSelectionnee: session, isUpdatingSession: false });
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isUpdatingSession: false });
+    }
+  },
+
+  clearSession: () => set({ sessionSelectionnee: null }),
+
   chargerPlannings: async () => {
     set({ isLoadingPlannings: true, error: null });
     try {
@@ -216,6 +316,47 @@ export const useConseilStore = create<ConseilState>()((set, get) => ({
       set({ planningSelectionne: planning, isLoadingPlannings: false });
     } catch (error) {
       set({ error: getApiErrorMessage(error), isLoadingPlannings: false });
+    }
+  },
+
+  ajouterOperation: async (planningId, payload) => {
+    set({ isSavingOperation: true, error: null });
+    try {
+      await conseilApi.creerOperation(planningId, payload);
+      await get().chargerPlanning(planningId);
+      set({ isSavingOperation: false });
+      return true;
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isSavingOperation: false });
+      return false;
+    }
+  },
+
+  modifierOperation: async (operationId, payload) => {
+    const planningId = get().planningSelectionne?.id;
+    set({ isSavingOperation: true, error: null });
+    try {
+      await conseilApi.modifierOperation(operationId, payload);
+      if (planningId) await get().chargerPlanning(planningId);
+      set({ isSavingOperation: false });
+      return true;
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isSavingOperation: false });
+      return false;
+    }
+  },
+
+  supprimerOperation: async (operationId) => {
+    const planningId = get().planningSelectionne?.id;
+    set({ isSavingOperation: true, error: null });
+    try {
+      await conseilApi.supprimerOperation(operationId);
+      if (planningId) await get().chargerPlanning(planningId);
+      set({ isSavingOperation: false });
+      return true;
+    } catch (error) {
+      set({ error: getApiErrorMessage(error), isSavingOperation: false });
+      return false;
     }
   },
 

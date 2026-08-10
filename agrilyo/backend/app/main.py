@@ -14,6 +14,14 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.database import check_db_connection, engine
 
+# ── Config logging — sans ça, logger.info()/logger.debug() ne s'affichent
+#    jamais dans le terminal (niveau racine par défaut = WARNING) ────────────
+logging.basicConfig(
+    level=logging.DEBUG if settings.is_development else logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 logger = logging.getLogger(__name__)
 
 # ── Rate limiting en mémoire (simple, remplacer par Redis en production) ─────

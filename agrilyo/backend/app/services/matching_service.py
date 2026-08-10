@@ -24,6 +24,12 @@ from app.models.conseil import (
     StatutSessionConseil,
 )
 from app.models.user import User, UserRole
+from app.services.notification_service import (
+    notifier_demande_assignee,
+    notifier_demande_recue,
+    notifier_session_planifiee,
+)
+from app.utils.pagination import compute_total_pages
 from app.schemas.conseil import (
     AgronomeCreate,
     AgronomeListResponse,
@@ -38,12 +44,16 @@ from app.schemas.conseil import (
     DemandeConseilResume,
     DemandeConseilStatutUpdate,
     MatchingSuggestion,
+    OperationPlanningCreate,
+    OperationPlanningResponse,
+    OperationPlanningUpdate,
     PlanningCulturalCreate,
     PlanningCulturalListResponse,
     PlanningCulturalResponse,
     PlanningCulturalUpdate,
     SessionConseilCreate,
     SessionConseilResponse,
+    SessionConseilTerminer,
     SessionConseilUpdate,
 )
 
@@ -69,6 +79,11 @@ class PlanningNotFoundError(ConseilError):
         super().__init__("Planning cultural introuvable", 404)
 
 
+class OperationNotFoundError(ConseilError):
+    def __init__(self):
+        super().__init__("Operation de planning introuvable", 404)
+
+
 class ConseilAccessDeniedError(ConseilError):
     def __init__(self, message: str = "Acces refuse"):
         super().__init__(message, 403)
@@ -79,7 +94,7 @@ def _norm(value: str | None) -> str:
 
 
 def _pages(total: int, size: int) -> int:
-    return max(1, -(-total // size))
+    return compute_total_pages(total, size)
 
 
 def _agronome_resume(agronome: Agronome) -> AgronomeResume:
@@ -158,7 +173,7 @@ async def creer_agronome(
     agronome = Agronome(user_id=user.id, **data.model_dump())
     db.add(agronome)
     user.add_role(UserRole.AGRONOME)
-    await db.flush()
+    await db.commit()
     return AgronomeResponse.model_validate(agronome)
 
 
@@ -188,7 +203,7 @@ async def modifier_mon_profil_agronome(
     agronome = await _get_mon_agronome(user=user, db=db)
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(agronome, key, value)
-    await db.flush()
+    await db.commit()
     return AgronomeResponse.model_validate(agronome)
 
 
@@ -202,11 +217,11 @@ async def lister_agronomes(
 ) -> AgronomeListResponse:
     query = select(Agronome).where(Agronome.statut == StatutAgronome.VERIFIE)
     if culture:
-        query = query.where(Agronome.cultures.any(culture))
+        query = query.where(Agronome.cultures.contains([culture]))
     if region:
-        query = query.where(Agronome.regions_couvertes.any(region))
+        query = query.where(Agronome.regions_couvertes.contains([region]))
     if specialite:
-        query = query.where(Agronome.specialites.any(specialite))
+        query = query.where(Agronome.specialites.contains([specialite]))
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar_one()
@@ -237,7 +252,7 @@ async def mettre_a_jour_statut_agronome(
     agronome.note_admin = data.note_admin
     if data.statut == StatutAgronome.VERIFIE:
         agronome.verifie_le = datetime.now(timezone.utc)
-    await db.flush()
+    await db.commit()
     return AgronomeResponse.model_validate(agronome)
 
 
@@ -254,7 +269,11 @@ async def creer_demande_conseil(
         **payload,
     )
     db.add(demande)
-    await db.flush()
+    await db.commit()
+    try:
+        await notifier_demande_recue(agriculteur=user, titre_demande=demande.titre)
+    except Exception:
+        pass  # une notification en echec ne doit jamais faire echouer la creation
     return _demande_response(demande)
 
 
@@ -342,7 +361,13 @@ async def assigner_demande_conseil(
     demande.score_matching = data.score_matching
     demande.statut = StatutDemandeConseil.ASSIGNEE
     demande.assigned_at = datetime.now(timezone.utc)
-    await db.flush()
+    await db.commit()
+    try:
+        agriculteur = await db.get(User, demande.agriculteur_id)
+        if agriculteur:
+            await notifier_demande_assignee(agriculteur=agriculteur, agronome_titre=agronome.titre)
+    except Exception:
+        pass
     return _demande_response(demande)
 
 
@@ -361,7 +386,7 @@ async def mettre_a_jour_statut_demande(
     demande.statut = data.statut
     if data.statut in {StatutDemandeConseil.TERMINEE, StatutDemandeConseil.ANNULEE}:
         demande.closed_at = datetime.now(timezone.utc)
-    await db.flush()
+    await db.commit()
     return _demande_response(demande)
 
 
@@ -386,7 +411,17 @@ async def creer_session_conseil(
     )
     demande.statut = StatutDemandeConseil.EN_COURS
     db.add(session)
-    await db.flush()
+    await db.commit()
+    if session.scheduled_at:
+        try:
+            agriculteur = await db.get(User, session.agriculteur_id)
+            if agriculteur:
+                await notifier_session_planifiee(
+                    phone_number=agriculteur.phone_number,
+                    scheduled_at=session.scheduled_at,
+                )
+        except Exception:
+            pass
     return SessionConseilResponse.model_validate(session)
 
 
@@ -410,7 +445,97 @@ async def modifier_session_conseil(
         agronome = await db.get(Agronome, session.agronome_id)
         if agronome:
             agronome.nombre_sessions += 1
-    await db.flush()
+    await db.commit()
+    return SessionConseilResponse.model_validate(session)
+
+
+async def _get_session_for_agronome(session_id: uuid.UUID, user: User, db: AsyncSession) -> SessionConseil:
+    session = await db.get(SessionConseil, session_id)
+    if not session:
+        raise ConseilError("Session de conseil introuvable", 404)
+    if not user.has_role(UserRole.ADMIN):
+        agronome = await _get_mon_agronome(user=user, db=db)
+        if session.agronome_id != agronome.id:
+            raise ConseilAccessDeniedError()
+    return session
+
+
+async def get_session_conseil(
+    session_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> SessionConseilResponse:
+    """
+    Consultation en lecture d'une session. Contrairement a demarrer/terminer
+    (reserves a l'agronome assigne), l'agriculteur concerne peut aussi
+    consulter le detail de sa propre session.
+    """
+    session = await db.get(SessionConseil, session_id)
+    if not session:
+        raise ConseilError("Session de conseil introuvable", 404)
+
+    if not user.has_role(UserRole.ADMIN):
+        est_agriculteur = session.agriculteur_id == user.id
+        est_agronome = False
+        if not est_agriculteur:
+            result = await db.execute(select(Agronome.id).where(Agronome.user_id == user.id))
+            mon_agronome_id = result.scalar_one_or_none()
+            est_agronome = mon_agronome_id is not None and mon_agronome_id == session.agronome_id
+        if not est_agriculteur and not est_agronome:
+            raise ConseilAccessDeniedError()
+
+    return SessionConseilResponse.model_validate(session)
+
+
+async def demarrer_session_conseil(
+    session_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> SessionConseilResponse:
+    """Demarre une session PLANIFIEE. L'heure de debut est fixee par le serveur."""
+    session = await _get_session_for_agronome(session_id=session_id, user=user, db=db)
+    if session.statut != StatutSessionConseil.PLANIFIEE:
+        raise ConseilError(
+            "Seule une session PLANIFIEE peut etre demarree", 400
+        )
+    session.statut = StatutSessionConseil.EN_COURS
+    session.started_at = datetime.now(timezone.utc)
+    await db.commit()
+    return SessionConseilResponse.model_validate(session)
+
+
+async def terminer_session_conseil(
+    session_id: uuid.UUID,
+    data: SessionConseilTerminer,
+    user: User,
+    db: AsyncSession,
+) -> SessionConseilResponse:
+    """
+    Cloture une session EN_COURS : heure de fin calculee par le serveur,
+    duree derivee de started_at/ended_at, compte-rendu obligatoire.
+    """
+    session = await _get_session_for_agronome(session_id=session_id, user=user, db=db)
+    if session.statut != StatutSessionConseil.EN_COURS:
+        raise ConseilError(
+            "Seule une session EN_COURS peut etre terminee", 400
+        )
+
+    session.statut = StatutSessionConseil.TERMINEE
+    ended_at = datetime.now(timezone.utc)
+    session.ended_at = ended_at
+    started_at = session.started_at
+    if started_at:
+        delta = ended_at - started_at
+        session.duree_minutes = max(1, round(delta.total_seconds() / 60))
+    session.compte_rendu = data.compte_rendu
+    if data.notes_agronome is not None:
+        session.notes_agronome = data.notes_agronome
+
+    agronome = await db.get(Agronome, session.agronome_id)
+    if agronome:
+        agronome.nombre_sessions += 1
+
+    await db.commit()
     return SessionConseilResponse.model_validate(session)
 
 
@@ -441,7 +566,7 @@ async def creer_planning_cultural(
     for operation in data.operations:
         planning.operations.append(OperationPlanning(**operation.model_dump()))
     db.add(planning)
-    await db.flush()
+    await db.commit()
     await db.refresh(planning, attribute_names=["operations"])
     return PlanningCulturalResponse.model_validate(planning)
 
@@ -476,6 +601,31 @@ async def get_planning(
     user: User,
     db: AsyncSession,
 ) -> PlanningCulturalResponse:
+    planning = await _get_planning_with_access_check(planning_id=planning_id, user=user, db=db)
+    return PlanningCulturalResponse.model_validate(planning)
+
+
+async def modifier_planning(
+    planning_id: uuid.UUID,
+    data: PlanningCulturalUpdate,
+    user: User,
+    db: AsyncSession,
+) -> PlanningCulturalResponse:
+    planning = await _get_planning_with_access_check(planning_id=planning_id, user=user, db=db)
+
+    for key, value in data.model_dump(exclude_unset=True).items():
+        setattr(planning, key, value)
+    await db.commit()
+    return PlanningCulturalResponse.model_validate(planning)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Opérations de planning cultural
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def _get_planning_with_access_check(
+    planning_id: uuid.UUID, user: User, db: AsyncSession
+) -> PlanningCultural:
     result = await db.execute(
         select(PlanningCultural)
         .options(selectinload(PlanningCultural.operations))
@@ -490,29 +640,49 @@ async def get_planning(
         agronome = await _get_mon_agronome(user=user, db=db)
         if planning.agronome_id != agronome.id:
             raise ConseilAccessDeniedError()
-    return PlanningCulturalResponse.model_validate(planning)
+    return planning
 
 
-async def modifier_planning(
+async def creer_operation_planning(
     planning_id: uuid.UUID,
-    data: PlanningCulturalUpdate,
+    data: OperationPlanningCreate,
     user: User,
     db: AsyncSession,
-) -> PlanningCulturalResponse:
-    result = await db.execute(
-        select(PlanningCultural)
-        .options(selectinload(PlanningCultural.operations))
-        .where(PlanningCultural.id == planning_id)
-    )
-    planning = result.scalar_one_or_none()
-    if not planning:
-        raise PlanningNotFoundError()
-    if planning.agriculteur_id != user.id and not user.has_role(UserRole.ADMIN):
-        agronome = await _get_mon_agronome(user=user, db=db)
-        if planning.agronome_id != agronome.id:
-            raise ConseilAccessDeniedError()
+) -> OperationPlanningResponse:
+    planning = await _get_planning_with_access_check(planning_id=planning_id, user=user, db=db)
+    operation = OperationPlanning(planning_id=planning.id, **data.model_dump())
+    db.add(operation)
+    await db.commit()
+    return OperationPlanningResponse.model_validate(operation)
+
+
+async def modifier_operation_planning(
+    operation_id: uuid.UUID,
+    data: OperationPlanningUpdate,
+    user: User,
+    db: AsyncSession,
+) -> OperationPlanningResponse:
+    operation = await db.get(OperationPlanning, operation_id)
+    if not operation:
+        raise OperationNotFoundError()
+    # L'autorisation se base sur le planning parent (agriculteur/agronome/admin)
+    await _get_planning_with_access_check(planning_id=operation.planning_id, user=user, db=db)
 
     for key, value in data.model_dump(exclude_unset=True).items():
-        setattr(planning, key, value)
-    await db.flush()
-    return PlanningCulturalResponse.model_validate(planning)
+        setattr(operation, key, value)
+    await db.commit()
+    return OperationPlanningResponse.model_validate(operation)
+
+
+async def supprimer_operation_planning(
+    operation_id: uuid.UUID,
+    user: User,
+    db: AsyncSession,
+) -> None:
+    operation = await db.get(OperationPlanning, operation_id)
+    if not operation:
+        raise OperationNotFoundError()
+    await _get_planning_with_access_check(planning_id=operation.planning_id, user=user, db=db)
+
+    await db.delete(operation)
+    await db.commit()
