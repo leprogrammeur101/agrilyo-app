@@ -21,7 +21,14 @@ from app.core.security import (
 )
 from app.models.otp import OTPCode, OTPPurpose
 from app.models.user import User, UserRole, UserStatus
-from app.schemas.auth import AuthResponse, SendOTPResponse, TokenPairSchema, UserPublicSchema
+from app.schemas.auth import (
+    AuthResponse,
+    CompleteProfileRequest,
+    SendOTPResponse,
+    TokenPairSchema,
+    UpdateProfileRequest,
+    UserPublicSchema,
+)
 from app.services.sms_service import send_otp_sms
 
 logger = logging.getLogger(__name__)
@@ -240,6 +247,7 @@ async def verify_otp(
         user=UserPublicSchema.model_validate(user),
         is_new_user=is_new_user,
         requires_password_setup=user.password_hash is None,
+        requires_role_setup=is_new_user,
     )
 
 
@@ -251,6 +259,82 @@ async def set_password(user: User, password: str, db: AsyncSession) -> None:
     user.password_hash = hash_value(password)
     await db.commit()
     logger.info(f"Mot de passe défini : {user.phone_number}")
+
+
+async def complete_profile(
+    user: User, data: CompleteProfileRequest, db: AsyncSession
+) -> UserPublicSchema:
+    """
+    Étape "choix de rôle(s)" — appelée une seule fois juste après la 1ère
+    vérification OTP (requires_role_setup=true dans la réponse verify-otp).
+    Remplace le rôle par défaut (AGRICULTEUR) posé à la création du compte
+    par la sélection réelle de l'utilisateur, et déclenche les profils
+    métier associés (Agronome, Fournisseur) le cas échéant.
+    """
+    # Imports locaux pour éviter tout couplage/import circulaire entre
+    # auth_service et les modules métier Conseil / Semences.
+    from app.models.conseil import Agronome, StatutAgronome
+    from app.models.semences import FournisseurSemences, StatutFournisseur
+
+    user.roles = data.roles
+    user.first_name = data.first_name
+    user.last_name = data.last_name
+    user.region = data.region
+
+    if "AGRONOME" in data.roles:
+        existing = await db.execute(
+            select(Agronome.id).where(Agronome.user_id == user.id)
+        )
+        if existing.scalar_one_or_none() is None:
+            db.add(
+                Agronome(
+                    user_id=user.id,
+                    titre=user.full_name,
+                    regions_couvertes=[data.region],
+                    statut=StatutAgronome.EN_ATTENTE,
+                )
+            )
+            logger.info(f"Profil Agronome créé (EN_ATTENTE) pour {user.phone_number}")
+
+    if "SEMENCIER" in data.roles:
+        existing = await db.execute(
+            select(FournisseurSemences.id).where(FournisseurSemences.user_id == user.id)
+        )
+        if existing.scalar_one_or_none() is None:
+            db.add(
+                FournisseurSemences(
+                    user_id=user.id,
+                    nom_commercial=user.full_name,
+                    region=data.region,
+                    statut=StatutFournisseur.EN_ATTENTE,
+                )
+            )
+            logger.info(f"Profil Fournisseur créé (EN_ATTENTE) pour {user.phone_number}")
+
+    await db.commit()
+    await db.refresh(user)
+    logger.info(f"Profil complété : {user.phone_number} — rôles {data.roles}")
+
+    return UserPublicSchema.model_validate(user)
+
+
+async def update_profile(
+    user: User, data: UpdateProfileRequest, db: AsyncSession
+) -> UserPublicSchema:
+    """Mise à jour partielle du profil (écran Profil > Modifier)."""
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+    await db.commit()
+    await db.refresh(user)
+    return UserPublicSchema.model_validate(user)
+
+
+async def update_avatar(user: User, avatar_url: str, db: AsyncSession) -> UserPublicSchema:
+    """Met à jour l'URL de l'avatar après upload réussi vers R2."""
+    user.avatar_url = avatar_url
+    await db.commit()
+    await db.refresh(user)
+    return UserPublicSchema.model_validate(user)
 
 
 async def login_with_password(phone_number: str, password: str, db: AsyncSession) -> AuthResponse:

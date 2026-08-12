@@ -1,6 +1,6 @@
 /**
  * Layout du groupe Auth — écrans sans navigation tabs.
- * Login → Vérification OTP → Onboarding (si nouvel utilisateur) → Création mot de passe → Tabs
+ * Login → Vérification OTP → Choix de rôle(s) (si nouvel utilisateur) → Création mot de passe → Tabs
  */
 
 import { Stack } from "expo-router";
@@ -18,6 +18,7 @@ export default function AuthLayout() {
       <Stack.Screen name="login" />
       <Stack.Screen name="verify-otp" />
       <Stack.Screen name="onboarding" />
+      <Stack.Screen name="role-setup" />
       <Stack.Screen name="create-password" />
     </Stack>
   );

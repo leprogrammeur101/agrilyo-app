@@ -20,6 +20,7 @@ from app.api.v1.endpoints import foncier  # Sprint 2
 from app.api.v1.endpoints import contrat  # Sprint 3
 from app.api.v1.endpoints import semences  # Sprint 4
 from app.api.v1.endpoints import conseil  # Sprint 6
+from app.api.v1.endpoints import admin    # Back-office admin
 
 api_router = APIRouter()
 
@@ -40,3 +41,6 @@ api_router.include_router(semences.router, prefix="/semences", tags=["M2 Semence
 
 # ── Sprint 6 — M3 Conseil ─────────────────────────────────────────────────────
 api_router.include_router(conseil.router, prefix="/conseil", tags=["M3 Conseil"])
+
+# ── Back-office — Admin (users, KPIs) ────────────────────────────────────────
+api_router.include_router(admin.router, prefix="/admin", tags=["Admin"])

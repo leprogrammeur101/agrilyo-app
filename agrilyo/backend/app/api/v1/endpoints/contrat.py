@@ -9,10 +9,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.endpoints.auth import get_authenticated_user
 from app.core.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.contrat import (
     ContratCreate, ContratResponse,
-    LitigeCreate, LitigeResponse,
+    LitigeCreate, LitigeListResponse, LitigeResoudreRequest, LitigeResponse,
     MessageCreate, MessageResponse,
     SignatureRequest, SignatureResponse,
     ThreadCreate, ThreadResponse, ThreadResume,
@@ -21,10 +21,16 @@ from app.services.contrat_service import (
     ContratError,
     creer_contrat, creer_thread, declarer_litige,
     demander_otp_signature, envoyer_message,
-    get_contrat, get_thread, mes_threads, signer_contrat,
+    get_contrat, get_thread, lister_litiges, mes_threads,
+    resoudre_litige, signer_contrat,
 )
 
 router = APIRouter()
+
+
+def _require_admin(user: User) -> None:
+    if not user.has_role(UserRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Action réservée aux administrateurs")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -262,6 +268,48 @@ async def declarer_litige_endpoint(
         litige = await declarer_litige(
             data=data, declarant=current_user, db=db
         )
+        return LitigeResponse.model_validate(litige)
+    except ContratError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.message)
+
+
+@router.get(
+    "/litiges",
+    response_model=LitigeListResponse,
+    summary="[Admin] Lister les litiges",
+)
+async def lister_litiges_endpoint(
+    statut: str | None = None,
+    page: int = 1,
+    size: int = 20,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> LitigeListResponse:
+    _require_admin(current_user)
+    items, total, pages = await lister_litiges(db=db, statut=statut, page=page, size=size)
+    return LitigeListResponse(
+        items=[LitigeResponse.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        size=size,
+        pages=pages,
+    )
+
+
+@router.patch(
+    "/litiges/{litige_id}/resoudre",
+    response_model=LitigeResponse,
+    summary="[Admin] Faire avancer ou clôturer un litige",
+)
+async def resoudre_litige_endpoint(
+    litige_id: uuid.UUID,
+    data: LitigeResoudreRequest,
+    current_user: User = Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> LitigeResponse:
+    _require_admin(current_user)
+    try:
+        litige = await resoudre_litige(litige_id=litige_id, data=data, admin=current_user, db=db)
         return LitigeResponse.model_validate(litige)
     except ContratError as e:
         raise HTTPException(status_code=e.status_code, detail=e.message)

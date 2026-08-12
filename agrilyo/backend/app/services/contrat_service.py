@@ -28,10 +28,12 @@ from app.models.user import User
 from app.schemas.contrat import (
     ContratCreate,
     LitigeCreate,
+    LitigeResoudreRequest,
     MessageCreate,
     ThreadCreate,
 )
 from app.services.sms_service import send_otp_sms
+from app.utils.pagination import compute_total_pages
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -97,7 +99,7 @@ async def creer_thread(
         demandeur_id=demandeur.id,
     )
     db.add(thread)
-    await db.flush()
+    await db.commit()
 
     # Premier message
     message = MessageFoncier(
@@ -106,7 +108,7 @@ async def creer_thread(
         contenu=data.message_initial,
     )
     db.add(message)
-    await db.flush()
+    await db.commit()
     return thread
 
 
@@ -134,7 +136,7 @@ async def envoyer_message(
         contenu=data.contenu,
     )
     db.add(message)
-    await db.flush()
+    await db.commit()
     await db.refresh(message)
     return message
 
@@ -227,7 +229,7 @@ async def creer_contrat(
         statut=StatutContrat.BROUILLON,
     )
     db.add(contrat)
-    await db.flush()
+    await db.commit()
     await db.refresh(contrat)
     return contrat
 
@@ -390,6 +392,52 @@ async def declarer_litige(
         statut=StatutLitige.OUVERT,
     )
     db.add(litige)
-    await db.flush()
+    await db.commit()
+    await db.refresh(litige)
+    return litige
+
+
+async def lister_litiges(
+    db: AsyncSession,
+    statut: str | None = None,
+    page: int = 1,
+    size: int = 20,
+):
+    """[Admin] Liste tous les litiges, filtrable par statut, plus récents d'abord."""
+    from sqlalchemy import func
+
+    query = select(LitigeFoncier)
+    if statut:
+        query = query.where(LitigeFoncier.statut == statut)
+
+    total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_result.scalar_one()
+
+    result = await db.execute(
+        query.order_by(LitigeFoncier.created_at.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+    )
+    items = result.scalars().all()
+    return items, total, compute_total_pages(total, size)
+
+
+async def resoudre_litige(
+    litige_id: uuid.UUID,
+    data: LitigeResoudreRequest,
+    admin: User,
+    db: AsyncSession,
+) -> LitigeFoncier:
+    """[Admin] Fait avancer le statut d'un litige (médiation, résolution, escalade AFOR)."""
+    litige = await db.get(LitigeFoncier, litige_id)
+    if not litige:
+        raise ContratError("Litige introuvable", 404)
+
+    litige.statut = StatutLitige(data.statut)
+    litige.admin_id = admin.id
+    if data.resolution is not None:
+        litige.resolution = data.resolution
+
+    await db.commit()
     await db.refresh(litige)
     return litige

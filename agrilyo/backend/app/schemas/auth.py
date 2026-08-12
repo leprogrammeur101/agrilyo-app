@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import List
 from uuid import UUID
 from app.utils.phone import normalize_ci_phone
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator, Field
 
 
 # ── Validators réutilisables ───────────────────────────────────────────────────
@@ -87,6 +87,44 @@ class PasswordLoginRequest(BaseModel):
         return validate_ci_phone(v)
 
 
+# Rôles sélectionnables par l'utilisateur lui-même à l'inscription — ADMIN est
+# volontairement exclu, il ne peut être attribué que manuellement en base.
+SELECTABLE_ROLES = {"AGRICULTEUR", "BAILLEUR", "SEMENCIER", "AGRONOME"}
+
+
+class CompleteProfileRequest(BaseModel):
+    """
+    Complète le profil d'un nouvel utilisateur juste après la 1ère vérification OTP :
+    choix du/des rôle(s) + identité de base. Appelée une seule fois (endpoint protégé).
+    """
+    roles: List[str] = Field(min_length=1)
+    first_name: str = Field(min_length=1, max_length=100)
+    last_name: str = Field(min_length=1, max_length=100)
+    region: str = Field(min_length=1, max_length=100)
+
+    @field_validator("roles")
+    @classmethod
+    def validate_roles(cls, v: List[str]) -> List[str]:
+        invalid = set(v) - SELECTABLE_ROLES
+        if invalid:
+            raise ValueError(
+                f"Rôle(s) invalide(s) : {', '.join(sorted(invalid))}. "
+                f"Autorisés : {', '.join(sorted(SELECTABLE_ROLES))}."
+            )
+        # Dédoublonne en conservant l'ordre de sélection de l'utilisateur
+        return list(dict.fromkeys(v))
+
+
+class UpdateProfileRequest(BaseModel):
+    """Mise à jour partielle du profil — tous les champs sont optionnels (PATCH)."""
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    last_name: str | None = Field(default=None, min_length=1, max_length=100)
+    display_name: str | None = Field(default=None, max_length=200)
+    region: str | None = Field(default=None, max_length=100)
+    language: str | None = Field(default=None, max_length=5)
+    bio: str | None = Field(default=None, max_length=2000)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # Réponses (outputs)
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -111,6 +149,7 @@ class UserPublicSchema(BaseModel):
     display_name: str | None
     avatar_url: str | None
     region: str | None
+    bio: str | None
     roles: List[str]
     status: str
     phone_verified: bool
@@ -132,6 +171,7 @@ class AuthResponse(BaseModel):
     user: UserPublicSchema
     is_new_user: bool  # True si premier login — le front affiche l'onboarding
     requires_password_setup: bool = False  # True → le front doit rediriger vers l'écran de création de mot de passe
+    requires_role_setup: bool = False  # True → le front doit rediriger vers l'écran de choix de rôle(s)
 
 
 class SetPasswordResponse(BaseModel):

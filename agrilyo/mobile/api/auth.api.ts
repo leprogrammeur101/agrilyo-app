@@ -28,6 +28,7 @@ export interface UserProfile {
   display_name: string | null;
   avatar_url: string | null;
   region: string | null;
+  bio: string | null;
   roles: string[];
   status: string;
   phone_verified: boolean;
@@ -47,6 +48,7 @@ export interface AuthResponse {
   user: UserProfile;
   is_new_user: boolean;
   requires_password_setup: boolean;
+  requires_role_setup: boolean;
 }
 
 export interface SetPasswordPayload {
@@ -56,6 +58,24 @@ export interface SetPasswordPayload {
 export interface PasswordLoginPayload {
   phone_number: string;
   password: string;
+}
+
+export type SelectableRole = "AGRICULTEUR" | "BAILLEUR" | "SEMENCIER" | "AGRONOME";
+
+export interface CompleteProfilePayload {
+  roles: SelectableRole[];
+  first_name: string;
+  last_name: string;
+  region: string;
+}
+
+export interface UpdateProfilePayload {
+  first_name?: string;
+  last_name?: string;
+  display_name?: string;
+  region?: string;
+  language?: string;
+  bio?: string;
 }
 
 // ── Appels API ────────────────────────────────────────────────────────────────
@@ -108,6 +128,41 @@ export const authApi = {
    */
   loginWithPassword: async (payload: PasswordLoginPayload): Promise<AuthResponse> => {
     const { data } = await apiClient.post<AuthResponse>("/auth/login-password", payload);
+    return data;
+  },
+
+  /**
+   * Choix de rôle(s) + identité de base — appelé une seule fois juste après
+   * la première vérification OTP (requires_role_setup === true).
+   */
+  completeProfile: async (payload: CompleteProfilePayload): Promise<UserProfile> => {
+    const { data } = await apiClient.post<UserProfile>("/auth/complete-profile", payload);
+    return data;
+  },
+
+  /**
+   * Mise à jour partielle du profil (écran Profil > Modifier).
+   */
+  updateProfile: async (payload: UpdateProfilePayload): Promise<UserProfile> => {
+    const { data } = await apiClient.patch<UserProfile>("/auth/me", payload);
+    return data;
+  },
+
+  /**
+   * Upload de la photo de profil (multipart).
+   */
+  uploadAvatar: async (uri: string): Promise<UserProfile> => {
+    const formData = new FormData();
+    const filename = uri.split("/").pop() || "avatar.jpg";
+    const extMatch = /\.(\w+)$/.exec(filename);
+    const ext = extMatch ? extMatch[1].toLowerCase() : "jpg";
+    const mimeType = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : "image/jpeg";
+
+    formData.append("file", { uri, name: filename, type: mimeType } as unknown as Blob);
+
+    const { data } = await apiClient.post<UserProfile>("/auth/me/avatar", formData, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
     return data;
   },
 

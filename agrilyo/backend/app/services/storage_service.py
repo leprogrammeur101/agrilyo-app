@@ -8,6 +8,7 @@ Préfixes utilisés dans l'app :
   - "annonces" : photos des annonces Foncier
   - "products" : photos des produits Semences
   - "conseil"  : photos jointes aux demandes de diagnostic Conseil
+  - "avatars"  : photos de profil utilisateur
 """
 
 import asyncio
@@ -19,7 +20,7 @@ from botocore.exceptions import ClientError
 
 from app.core.config import settings
 
-StoragePrefix = Literal["annonces", "products", "conseil"]
+StoragePrefix = Literal["annonces", "products", "conseil", "avatars"]
 
 _s3_client = None
 

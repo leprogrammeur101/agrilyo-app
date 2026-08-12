@@ -10,13 +10,14 @@ Flux d'appel :
   GET  /auth/me           → profil de l'utilisateur connecté (endpoint protégé)
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Security
+from fastapi import APIRouter, Depends, File, HTTPException, Security, UploadFile
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.schemas.auth import (
     AuthResponse,
+    CompleteProfileRequest,
     PasswordLoginRequest,
     RefreshTokenRequest,
     SendOTPRequest,
@@ -24,19 +25,24 @@ from app.schemas.auth import (
     SetPasswordRequest,
     SetPasswordResponse,
     TokenPairSchema,
+    UpdateProfileRequest,
     UserPublicSchema,
 )
 from app.services.auth_service import (
     AccountSuspendedError,
     AuthError,
+    complete_profile,
     get_current_user,
     login_with_password,
     logout,
     refresh_tokens,
     send_otp,
     set_password,
+    update_avatar,
+    update_profile,
     verify_otp,
 )
+from app.services.storage_service import upload_image_to_r2
 from app.schemas.auth import VerifyOTPRequest
 
 router = APIRouter()
@@ -188,6 +194,69 @@ async def set_password_endpoint(
 ) -> SetPasswordResponse:
     await set_password(user=current_user, password=body.password, db=db)
     return SetPasswordResponse(success=True, message="Mot de passe créé avec succès.")
+
+
+@router.post(
+    "/complete-profile",
+    response_model=UserPublicSchema,
+    summary="Choisir son/ses rôle(s) et compléter son profil",
+    description=(
+        "Étape affichée une seule fois, juste après la première vérification OTP "
+        "(`requires_role_setup=true` dans la réponse de /verify-otp). "
+        "Remplace le rôle par défaut par la sélection de l'utilisateur et "
+        "crée les profils métier associés si besoin (Agronome, Fournisseur)."
+    ),
+)
+async def complete_profile_endpoint(
+    body: CompleteProfileRequest,
+    current_user=Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserPublicSchema:
+    return await complete_profile(user=current_user, data=body, db=db)
+
+
+@router.patch(
+    "/me",
+    response_model=UserPublicSchema,
+    summary="Modifier son profil",
+    description="Mise à jour partielle du profil connecté (tous les champs sont optionnels).",
+)
+async def update_me_endpoint(
+    body: UpdateProfileRequest,
+    current_user=Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserPublicSchema:
+    return await update_profile(user=current_user, data=body, db=db)
+
+
+@router.post(
+    "/me/avatar",
+    response_model=UserPublicSchema,
+    summary="Uploader sa photo de profil",
+)
+async def upload_avatar_endpoint(
+    file: UploadFile = File(...),
+    current_user=Depends(get_authenticated_user),
+    db: AsyncSession = Depends(get_db),
+) -> UserPublicSchema:
+    if file.content_type not in ["image/jpeg", "image/png", "image/webp"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Type de fichier non autorisé. Utilisez JPEG, PNG ou WebP.",
+        )
+    try:
+        upload_result = await upload_image_to_r2(
+            file_stream=file.file,
+            filename=file.filename or "avatar.jpg",
+            content_type=file.content_type,
+            prefix="avatars",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+    return await update_avatar(user=current_user, avatar_url=upload_result["url"], db=db)
 
 
 @router.post(

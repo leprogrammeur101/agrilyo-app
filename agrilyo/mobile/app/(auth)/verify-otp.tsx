@@ -55,7 +55,14 @@ export default function VerifyOTPScreen() {
         code,
       });
       await setAuth(response.user, response.tokens);
-      if (response.requires_password_setup) {
+      if (response.requires_role_setup) {
+        router.replace({
+          pathname: "/(auth)/role-setup",
+          params: {
+            requiresPasswordSetup: response.requires_password_setup ? "true" : "false",
+          },
+        });
+      } else if (response.requires_password_setup) {
         router.replace("/(auth)/create-password");
       } else {
         router.replace("/(tabs)");

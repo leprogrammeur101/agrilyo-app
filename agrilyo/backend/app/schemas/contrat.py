@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import List
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -137,3 +137,25 @@ class LitigeResponse(BaseModel):
     resolution: str | None
     created_at: datetime
     updated_at: datetime
+
+
+class LitigeResoudreRequest(BaseModel):
+    """[Admin] Fait avancer ou clôture un litige."""
+    statut: str = Field(description="MEDIATION | RESOLU | ESCALADE")
+    resolution: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("statut")
+    @classmethod
+    def validate_statut(cls, v: str) -> str:
+        allowed = {"MEDIATION", "RESOLU", "ESCALADE"}
+        if v not in allowed:
+            raise ValueError(f"Statut invalide. Autorisés : {', '.join(sorted(allowed))}")
+        return v
+
+
+class LitigeListResponse(BaseModel):
+    items: List[LitigeResponse]
+    total: int
+    page: int
+    size: int
+    pages: int
