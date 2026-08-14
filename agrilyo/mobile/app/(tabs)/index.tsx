@@ -71,7 +71,7 @@ export default function HomeScreen() {
             </Text>
             <Text style={styles.headerSub}>Que cherchez-vous aujourd'hui ?</Text>
           </View>
-          <TouchableOpacity style={styles.avatarBtn} onPress={() => {}}>
+          <TouchableOpacity style={styles.avatarBtn} onPress={() => router.push("/profil/profil")}>
             <Ionicons name="person-circle-outline" size={36} color={Colors.blanc} />
           </TouchableOpacity>
         </View>

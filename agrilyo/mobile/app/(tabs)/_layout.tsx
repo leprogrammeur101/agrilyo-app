@@ -47,13 +47,6 @@ const TABS: TabConfig[] = [
     iconFocused: "people",
     color: Colors.conseil,
   },
-  {
-    name: "profil",
-    title: "Profil",
-    icon: "person-outline",
-    iconFocused: "person",
-    color: Colors.vertForet,
-  },
 ];
 
 export default function TabsLayout() {

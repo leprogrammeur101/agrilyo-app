@@ -82,6 +82,9 @@ export default function RootLayout() {
           <Stack.Screen name="semences/panier" options={{ animation: "slide_from_bottom" }} />
           <Stack.Screen name="semences/commandes" options={{ animation: "slide_from_right" }} />
           <Stack.Screen name="semences/commandes/[id]" options={{ animation: "slide_from_right" }} />
+          {/* Profil (accessible depuis l'icône Accueil, plus un onglet) */}
+          <Stack.Screen name="profil/index" options={{ animation: "slide_from_right" }} />
+          <Stack.Screen name="profil/edit" options={{ animation: "slide_from_bottom" }} />
           <Stack.Screen name="+not-found" />
         </Stack>
         <StatusBar style="light" />

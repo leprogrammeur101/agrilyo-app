@@ -160,8 +160,15 @@ export const authApi = {
 
     formData.append("file", { uri, name: filename, type: mimeType } as unknown as Blob);
 
+    // ⚠️ Ne PAS fixer manuellement "Content-Type: multipart/form-data" ici :
+    // ce header a besoin d'un paramètre "boundary" généré automatiquement par
+    // React Native au moment de l'envoi. Si on le fixe nous-même (sans boundary),
+    // RN ne le regénère plus et le multipart devient illisible côté FastAPI
+    // (échec silencieux : file.content_type ne correspond à rien d'attendu).
+    // On écrase donc explicitement le défaut "application/json" de l'instance
+    // Axios par `undefined`, pour laisser RN poser le bon header lui-même.
     const { data } = await apiClient.post<UserProfile>("/auth/me/avatar", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
+      headers: { "Content-Type": undefined },
     });
     return data;
   },
