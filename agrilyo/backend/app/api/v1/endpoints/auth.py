@@ -15,6 +15,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.models.user import UserRole
 from app.schemas.auth import (
     AuthResponse,
     CompleteProfileRequest,
@@ -76,6 +77,18 @@ async def get_authenticated_user(
             detail=e.message,
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+async def require_admin(current_user=Depends(get_authenticated_user)):
+    """
+    Dependency FastAPI pour les routes réservées aux administrateurs.
+    Usage : `current_user = Depends(require_admin)` — remplace le pattern
+    `Depends(get_authenticated_user)` + vérification manuelle du rôle qui
+    était dupliqué dans plusieurs fichiers d'endpoints.
+    """
+    if not current_user.has_role(UserRole.ADMIN):
+        raise HTTPException(status_code=403, detail="Action réservée aux administrateurs")
+    return current_user
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

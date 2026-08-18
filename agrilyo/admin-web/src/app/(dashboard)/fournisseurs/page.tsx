@@ -49,19 +49,28 @@ export default function FournisseursPage() {
     nouveauStatut: "VERIFIE" | "SUSPENDU" | "REJETE"
   ) => {
     const confirmLabel =
-      nouveauStatut === "VERIFIE"
-        ? "Valider ce fournisseur ?"
-        : nouveauStatut === "SUSPENDU"
-          ? "Suspendre ce fournisseur ?"
-          : "Rejeter ce fournisseur ?";
+      nouveauStatut === "VERIFIE" && statut === "SUSPENDU"
+        ? "Réactiver ce fournisseur ?"
+        : nouveauStatut === "VERIFIE"
+          ? "Valider ce fournisseur ?"
+          : nouveauStatut === "SUSPENDU"
+            ? "Suspendre ce fournisseur ?"
+            : "Rejeter ce fournisseur ?";
     if (!window.confirm(confirmLabel)) return;
 
     setActionPendingId(id);
     try {
-      await api.patch(`/semences/fournisseurs/${id}/statut`, {
-        statut: nouveauStatut,
-        note_admin: noteDrafts[id]?.trim() || null,
-      });
+      if (statut === "EN_ATTENTE" && (nouveauStatut === "VERIFIE" || nouveauStatut === "REJETE")) {
+        await api.patch(`/admin/fournisseurs/${id}/validate`, {
+          decision: nouveauStatut,
+          motif: noteDrafts[id]?.trim() || null,
+        });
+      } else {
+        await api.patch(`/semences/fournisseurs/${id}/statut`, {
+          statut: nouveauStatut,
+          note_admin: noteDrafts[id]?.trim() || null,
+        });
+      }
       setFournisseurs((prev) => prev.filter((f) => f.id !== id));
     } catch (err) {
       alert(err instanceof ApiError ? err.message : "Action impossible");

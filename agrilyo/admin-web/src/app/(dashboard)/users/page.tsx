@@ -36,6 +36,7 @@ export default function UsersPage() {
   const [status, setStatus] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionPendingId, setActionPendingId] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -75,6 +76,25 @@ export default function UsersPage() {
   const handleStatusChange = (value: string) => {
     setStatus(value);
     setPage(1);
+  };
+
+  const handleToggleStatus = async (u: UserAdminResume) => {
+    const nouveauStatut = u.status === "SUSPENDED" ? "ACTIVE" : "SUSPENDED";
+    const label =
+      nouveauStatut === "SUSPENDED" ? `Suspendre ${u.phone_number} ?` : `Réactiver ${u.phone_number} ?`;
+    if (!window.confirm(label)) return;
+
+    setActionPendingId(u.id);
+    try {
+      const updated = await api.patch<UserAdminResume>(`/admin/users/${u.id}/status`, {
+        status: nouveauStatut,
+      });
+      setUsers((prev) => prev.map((item) => (item.id === u.id ? updated : item)));
+    } catch (err) {
+      alert(err instanceof ApiError ? err.message : "Action impossible");
+    } finally {
+      setActionPendingId(null);
+    }
   };
 
   return (
@@ -131,19 +151,20 @@ export default function UsersPage() {
               <th className="px-4 py-3 font-medium">Statut</th>
               <th className="px-4 py-3 font-medium">Inscrit le</th>
               <th className="px-4 py-3 font-medium">Dernière connexion</th>
+              <th className="px-4 py-3 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50">
             {loading && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-gray-400">
                   Chargement...
                 </td>
               </tr>
             )}
             {!loading && users.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-6 text-center text-gray-400">
+                <td colSpan={8} className="px-4 py-6 text-center text-gray-400">
                   Aucun utilisateur ne correspond à ces filtres.
                 </td>
               </tr>
@@ -179,6 +200,21 @@ export default function UsersPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-500">{formatDate(u.created_at)}</td>
                   <td className="px-4 py-3 text-gray-500">{formatDate(u.last_login_at)}</td>
+                  <td className="px-4 py-3">
+                    {(u.status === "ACTIVE" || u.status === "SUSPENDED") && (
+                      <button
+                        onClick={() => handleToggleStatus(u)}
+                        disabled={actionPendingId === u.id}
+                        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition disabled:opacity-40 ${
+                          u.status === "SUSPENDED"
+                            ? "border-succes text-succes hover:bg-succes/5"
+                            : "border-erreur text-erreur hover:bg-erreur/5"
+                        }`}
+                      >
+                        {u.status === "SUSPENDED" ? "Réactiver" : "Suspendre"}
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))}
           </tbody>

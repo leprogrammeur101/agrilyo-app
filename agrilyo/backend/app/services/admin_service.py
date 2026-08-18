@@ -1,8 +1,13 @@
 """
 Service Admin AGRILYO — requêtes transversales pour le back-office web.
-Ne contient volontairement aucune logique métier propre à un module
-(Foncier/Semences/Conseil) : uniquement des agrégations en lecture.
+Agrégations en lecture (listes, KPIs) + actions de modération qui ne relèvent
+d'aucun module métier en particulier (statut de compte utilisateur). La
+validation des profils Agronome/Fournisseur reste dans leurs services
+respectifs (matching_service.py / semences_service.py) — voir admin.py
+pour l'orchestration fine (garde EN_ATTENTE, etc.).
 """
+
+import logging
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,11 +15,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.conseil import Agronome, DemandeConseil, StatutAgronome
 from app.models.foncier import AnnonceFonciere, LitigeFoncier, StatutAnnonce, StatutLitige
 from app.models.semences import FournisseurSemences, StatutFournisseur
-from app.models.user import User, UserRole
-from app.schemas.admin import KPIResponse, UserAdminListResponse, UserAdminResume
+from app.models.user import User, UserRole, UserStatus
+from app.schemas.admin import (
+    KPIResponse,
+    UserAdminListResponse,
+    UserAdminResume,
+    UserStatusUpdateRequest,
+)
 from app.schemas.conseil import AgronomeListResponse, AgronomeResume
-from app.schemas.semences import FournisseurListResponse, FournisseurResponse
+from app.schemas.semences import FournisseurListResponse, FournisseurResume
 from app.utils.pagination import compute_total_pages
+
+logger = logging.getLogger(__name__)
+
+
+class AdminError(Exception):
+    def __init__(self, message: str, status_code: int = 400):
+        self.message = message
+        self.status_code = status_code
 
 
 async def lister_agronomes_par_statut(
@@ -70,7 +88,7 @@ async def lister_fournisseurs_par_statut(
     )
     items = result.scalars().all()
     return FournisseurListResponse(
-        items=[FournisseurResponse.model_validate(item) for item in items],
+        items=[FournisseurResume.model_validate(item) for item in items],
         total=total,
         page=page,
         size=size,
@@ -189,3 +207,31 @@ async def get_kpis(db: AsyncSession) -> KPIResponse:
         litiges_ouverts=litiges_ouverts,
         demandes_conseil_par_statut=demandes_conseil_par_statut,
     )
+
+
+async def mettre_a_jour_statut_user(
+    db: AsyncSession,
+    user_id,
+    data: UserStatusUpdateRequest,
+    admin: User,
+) -> UserAdminResume:
+    """
+    [Admin] Suspend ou réactive un compte — jamais de suppression hard,
+    jamais de bannissement via cette route (voir UserStatusUpdateRequest).
+    """
+    if str(user_id) == str(admin.id):
+        raise AdminError("Vous ne pouvez pas modifier le statut de votre propre compte.", 400)
+
+    target = await db.get(User, user_id)
+    if not target:
+        raise AdminError("Utilisateur introuvable", 404)
+
+    target.status = UserStatus(data.status)
+    await db.commit()
+    await db.refresh(target)
+
+    logger.info(
+        "Statut utilisateur modifié par admin %s : %s -> %s (motif: %s)",
+        admin.phone_number, target.phone_number, data.status, data.motif or "—",
+    )
+    return UserAdminResume.model_validate(target)

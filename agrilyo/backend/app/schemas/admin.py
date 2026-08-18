@@ -4,10 +4,10 @@ Liste des utilisateurs et tableau de bord KPI, consommés par le back-office web
 """
 
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class UserAdminResume(BaseModel):
@@ -46,3 +46,25 @@ class KPIResponse(BaseModel):
     annonces_actives: int
     litiges_ouverts: int
     demandes_conseil_par_statut: Dict[str, int]
+
+
+class AgronomeValidateRequest(BaseModel):
+    """[Admin] Décision sur un profil agronome EN_ATTENTE."""
+    decision: Literal["VERIFIE", "REJETE"]
+    motif: str | None = Field(default=None, max_length=1000)
+
+
+class FournisseurValidateRequest(BaseModel):
+    """[Admin] Décision sur un profil fournisseur EN_ATTENTE."""
+    decision: Literal["VERIFIE", "REJETE"]
+    motif: str | None = Field(default=None, max_length=1000)
+
+
+class UserStatusUpdateRequest(BaseModel):
+    """
+    [Admin] Modération d'un compte — pas de suppression hard, pas de bannissement
+    via cette route (ACTIVE/SUSPENDED uniquement ; BANNED reste une action distincte
+    et volontairement non exposée ici pour éviter les bannissements accidentels).
+    """
+    status: Literal["ACTIVE", "SUSPENDED"]
+    motif: str | None = Field(default=None, max_length=1000)

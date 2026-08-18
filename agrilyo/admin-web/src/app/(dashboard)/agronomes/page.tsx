@@ -45,19 +45,30 @@ export default function AgronomesPage() {
 
   const handleAction = async (id: string, nouveauStatut: "VERIFIE" | "SUSPENDU" | "REJETE") => {
     const confirmLabel =
-      nouveauStatut === "VERIFIE"
-        ? "Valider ce profil agronome ?"
-        : nouveauStatut === "SUSPENDU"
-          ? "Suspendre ce profil ?"
-          : "Rejeter ce profil ?";
+      nouveauStatut === "VERIFIE" && statut === "SUSPENDU"
+        ? "Réactiver ce profil ?"
+        : nouveauStatut === "VERIFIE"
+          ? "Valider ce profil agronome ?"
+          : nouveauStatut === "SUSPENDU"
+            ? "Suspendre ce profil ?"
+            : "Rejeter ce profil ?";
     if (!window.confirm(confirmLabel)) return;
 
     setActionPendingId(id);
     try {
-      await api.patch(`/conseil/agronomes/${id}/statut`, {
-        statut: nouveauStatut,
-        note_admin: noteDrafts[id]?.trim() || null,
-      });
+      if (statut === "EN_ATTENTE" && (nouveauStatut === "VERIFIE" || nouveauStatut === "REJETE")) {
+        // Décision sur un profil en attente → endpoint admin dédié (garde EN_ATTENTE incluse)
+        await api.patch(`/admin/agronomes/${id}/validate`, {
+          decision: nouveauStatut,
+          motif: noteDrafts[id]?.trim() || null,
+        });
+      } else {
+        // Suspendre un profil VERIFIE, ou le réactiver depuis SUSPENDU
+        await api.patch(`/conseil/agronomes/${id}/statut`, {
+          statut: nouveauStatut,
+          note_admin: noteDrafts[id]?.trim() || null,
+        });
+      }
       // Le profil quitte la file courante une fois son statut changé
       setAgronomes((prev) => prev.filter((a) => a.id !== id));
     } catch (err) {

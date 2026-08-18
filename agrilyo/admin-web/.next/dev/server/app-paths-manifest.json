@@ -1,9 +1,0 @@
-{
-  "/(dashboard)/agronomes/page": "app/(dashboard)/agronomes/page.js",
-  "/(dashboard)/fournisseurs/page": "app/(dashboard)/fournisseurs/page.js",
-  "/(dashboard)/litiges/page": "app/(dashboard)/litiges/page.js",
-  "/(dashboard)/page": "app/(dashboard)/page.js",
-  "/(dashboard)/users/page": "app/(dashboard)/users/page.js",
-  "/_not-found/page": "app/_not-found/page.js",
-  "/login/page": "app/login/page.js"
-}
