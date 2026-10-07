@@ -217,6 +217,7 @@ class FournisseurResponse(BaseModel):
     nombre_avis: int
     nombre_produits_actifs: int
     verifie_le: datetime | None
+    note_admin: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -915,4 +916,4 @@ class FournisseurFiltres(BaseModel):
             raise ValueError(
                 f"Tri invalide. Valeurs autorisées : {valeurs_autorisees}"
             )
-        return 
+        return

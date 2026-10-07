@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # ── Base de données PostgreSQL ─────────────────────────────────────────────
     DATABASE_URL: str
-
+    TEST_DATABASE_URL: str | None = None
     # ── Sécurité JWT ──────────────────────────────────────────────────────────
     # ⚠️ OBLIGATOIRE via variable d'environnement — aucune valeur par défaut
     JWT_SECRET_KEY: str
